@@ -35,7 +35,7 @@ print(re.findall(PAT, file_content))
 
 merges: list[tuple[int, int], int] = {}
 bpe: dict[tuple[str, str], int] = {}
-indices = list(map(int, file_content.encode("utf-8"))) 
+indices = list(map(int, file_content.encode("utf-8")))
 
 #
 num_merges = 10
