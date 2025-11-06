@@ -19,8 +19,8 @@ except FileNotFoundError:
 # Create vocab dictionary 0-255 bytes and special tokens
 special_tokens = ["<|endoftext|>"]
 vocab: dict[int, bytes] = {
-    **{x: bytes([x]) for x in range(256)},                  # byte values
-    **{256 + i: c.encode("utf-8") for i, c in enumerate(special_tokens)}  # special tokens
+    **{x: bytes([x]) for x in range(256)}, # byte values
+    **{256 + i: c.encode("utf-8") for i, c in enumerate(special_tokens)} # special tokens
 }
 print(vocab)
 
