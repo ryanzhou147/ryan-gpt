@@ -3,11 +3,11 @@
 
 import regex as re
 import os
+from file_content_split import find_EOF_boundaries
 from collections import defaultdict
 
 # Opens and extracts text from training data
 current_directory = os.getcwd()
-print(current_directory)
 input_path = os.path.join(current_directory, "cs336_basics/test.txt")
 try:
     with open(input_path, "r") as file:
@@ -60,7 +60,7 @@ print(tuple_pre_tokenized_file_content)
 # BPE Processing
 merges: list[tuple[bytes, bytes]] = [] # Keep track of merges
 
-NUM_MERGES = 10 # How many merges to make
+NUM_MERGES = 5 # How many merges to make
 
 for i in range(NUM_MERGES):
 
