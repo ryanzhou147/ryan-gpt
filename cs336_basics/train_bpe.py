@@ -3,11 +3,11 @@
 
 import regex as re
 import os
-# from file_content_split import find_EOF_boundaries
-from typing import Dict
+from collections import defaultdict
 
 # Opens and extracts text from training data
 current_directory = os.getcwd()
+print(current_directory)
 input_path = os.path.join(current_directory, "cs336_basics/test.txt")
 try:
     with open(input_path, "r") as file:
@@ -36,7 +36,7 @@ special_group = "|".join(special_patterns)
 PAT = rf"""{special_group}|'(?:[sdmt]|ll|ve|re)| ?\p{{L}}+| ?\p{{N}}+| ?[^\s\p{{L}}\p{{N}}]+|\s+(?!\S)|\s+ | """
 
 # Pre-tokenized pattern with frequency
-pre_tokenized_file_content: Dict[str, int] = {}
+pre_tokenized_file_content = {}
 for pre_token in re.finditer(PAT, file_content):
     pre_tokenized_file_content[pre_token.group()] = pre_tokenized_file_content.get(pre_token.group(), 0) + 1
 
@@ -60,7 +60,7 @@ print(tuple_pre_tokenized_file_content)
 # BPE Processing
 merges: list[tuple[bytes, bytes]] = [] # Keep track of merges
 
-NUM_MERGES = 5 # How many merges to make
+NUM_MERGES = 10 # How many merges to make
 
 for i in range(NUM_MERGES):
 

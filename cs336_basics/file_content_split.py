@@ -6,7 +6,11 @@ import regex as re
 from multiprocessing import Pool
 from typing import BinaryIO, Tuple, Dict
 
-NUM_PROCESSES = 4
+NUM_PRETOKENIZING_PROCESSES = 4
+SPECIAL_TOKENS = ["<|endoftext|>"]
+initalize_vocab()
+def initalize_vocab(special_tokens: list[str]):
+    return
 
 special_tokens = ["<|endoftext|>"]
 special_patterns = [re.escape(c) for c in special_tokens]
@@ -60,8 +64,10 @@ def find_EOF_boundaries(
     # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
     return sorted(set(chunk_boundaries))
 
-# Worker function for pre-tokenization
 def process_chunk(args: Tuple[int, int, str]) -> Dict[str, int]:
+    """
+    Worker function for reading each chunk
+    """
     start, end, filepath = args
     local_counts: Dict[str, int] = {}
 
@@ -69,36 +75,38 @@ def process_chunk(args: Tuple[int, int, str]) -> Dict[str, int]:
         f.seek(start)
         chunk_data = f.read(end - start).decode("utf-8", errors="ignore")
         # run pre-tokenization and count frequencies
-
         for pre_token in re.finditer(PAT, chunk_data):
             local_counts[pre_token.group()] = local_counts.get(pre_token.group(), 0) + 1
     print(local_counts)
     return local_counts
 
-## Usage 
-current_directory = os.getcwd()
-input_path = os.path.join(current_directory, "cs336_basics/test.txt")
+def pretokenize_file_parallel(file_path_from_root_folder: str) -> Dict[int, str]:
+    """
+    Pretokenize given file and return frequency table
+    """
+    current_directory = os.getcwd()
+    file_path = os.path.join(current_directory, file_path_from_root_folder)
 
-with open(input_path, "rb") as f:
+    with open(file_path, "rb") as f:
 
-    boundaries = find_EOF_boundaries(f, NUM_PROCESSES, b"<|endoftext|>")
-    print(boundaries)
+        boundaries = find_EOF_boundaries(f, NUM_PRETOKENIZING_PROCESSES, b"<|endoftext|>")
+        print(boundaries)
 
-    # Run through every consecutive boundaries
-    # Start pre-tokenization process for each
+        # Run through every consecutive boundaries
+        # Start pre-tokenization process for each
 
-    chunks = [(boundaries[i], boundaries[i+1], input_path) for i in range(len(boundaries)-1)]
-    print(chunks)
-    
-    with Pool(processes=NUM_PROCESSES) as pool:
-        results = pool.map(process_chunk, chunks)
+        chunks = [(boundaries[i], boundaries[i+1], file_path) for i in range(len(boundaries)-1)]
+        print(chunks)
+        
+        with Pool(processes=NUM_PRETOKENIZING_PROCESSES) as pool:
+            results = pool.map(process_chunk, chunks)
 
-    global_pretokenization_dict: Dict[int, str] = {}
-    for chunk_result in results:
-         for token, count in chunk_result.items():
-            global_pretokenization_dict[token] = global_pretokenization_dict.get(token, 0) + count
-    
-    print(global_pretokenization_dict)
+        global_pretokenization_dict: Dict[int, str] = {}
+        for chunk_result in results:
+            for token, count in chunk_result.items():
+                global_pretokenization_dict[token] = global_pretokenization_dict.get(token, 0) + count
+        
+        return global_pretokenization_dict
 
 
-
+print(pretokenize_file_parallel("cs336_basics/test.txt"))
