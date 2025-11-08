@@ -2,10 +2,16 @@
 # Then generate a list of it and chunk it accordingly to NUM_PROCESSES
 
 import os
-import multiprocessing as mp
-from typing import BinaryIO
+import regex as re
+from multiprocessing import Pool
+from typing import BinaryIO, Tuple, Dict
 
 NUM_PROCESSES = 4
+
+special_tokens = ["<|endoftext|>"]
+special_patterns = [re.escape(c) for c in special_tokens]
+special_group = "|".join(special_patterns)
+PAT = rf"""{special_group}|'(?:[sdmt]|ll|ve|re)| ?\p{{L}}+| ?\p{{N}}+| ?[^\s\p{{L}}\p{{N}}]+|\s+(?!\S)|\s+ | """
 
 def find_EOF_boundaries(
     file: BinaryIO,
@@ -54,6 +60,20 @@ def find_EOF_boundaries(
     # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
     return sorted(set(chunk_boundaries))
 
+# Worker function for pre-tokenization
+def process_chunk(args: Tuple[int, int, str]) -> Dict[str, int]:
+    start, end, filepath = args
+    local_counts: Dict[str, int] = {}
+
+    with open(filepath, "rb") as f:
+        f.seek(start)
+        chunk_data = f.read(end - start).decode("utf-8", errors="ignore")
+        # run pre-tokenization and count frequencies
+
+        for pre_token in re.finditer(PAT, chunk_data):
+            local_counts[pre_token.group()] = local_counts.get(pre_token.group(), 0) + 1
+    print(local_counts)
+    return local_counts
 
 ## Usage 
 current_directory = os.getcwd()
@@ -64,10 +84,21 @@ with open(input_path, "rb") as f:
     boundaries = find_EOF_boundaries(f, NUM_PROCESSES, b"<|endoftext|>")
     print(boundaries)
 
-    # The following is a serial implementation, but you can parallelize this
-    # by sending each start/end pair to a set of processes.
-    for start, end in zip(boundaries[:-1], boundaries[1:]):
-        f.seek(start)
-        chunk = f.read(end - start).decode("utf-8", errors="ignore")
-        # Run pre-tokenization on your chunk and store the counts for each pre-token
+    # Run through every consecutive boundaries
+    # Start pre-tokenization process for each
+
+    chunks = [(boundaries[i], boundaries[i+1], input_path) for i in range(len(boundaries)-1)]
+    print(chunks)
+    
+    with Pool(processes=NUM_PROCESSES) as pool:
+        results = pool.map(process_chunk, chunks)
+
+    global_pretokenization_dict: Dict[int, str] = {}
+    for chunk_result in results:
+         for token, count in chunk_result.items():
+            global_pretokenization_dict[token] = global_pretokenization_dict.get(token, 0) + count
+    
+    print(global_pretokenization_dict)
+
+
 

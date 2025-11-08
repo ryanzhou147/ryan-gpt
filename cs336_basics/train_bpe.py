@@ -3,8 +3,8 @@
 
 import regex as re
 import os
-from file_content_split import find_EOF_boundaries
-from collections import defaultdict
+# from file_content_split import find_EOF_boundaries
+from typing import Dict
 
 # Opens and extracts text from training data
 current_directory = os.getcwd()
@@ -36,7 +36,7 @@ special_group = "|".join(special_patterns)
 PAT = rf"""{special_group}|'(?:[sdmt]|ll|ve|re)| ?\p{{L}}+| ?\p{{N}}+| ?[^\s\p{{L}}\p{{N}}]+|\s+(?!\S)|\s+ | """
 
 # Pre-tokenized pattern with frequency
-pre_tokenized_file_content = {}
+pre_tokenized_file_content: Dict[str, int] = {}
 for pre_token in re.finditer(PAT, file_content):
     pre_tokenized_file_content[pre_token.group()] = pre_tokenized_file_content.get(pre_token.group(), 0) + 1
 
