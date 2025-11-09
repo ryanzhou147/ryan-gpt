@@ -1,134 +1,163 @@
-# UTF-8 is something like this: \x93\xe3\x81\xaa\xe3\x81\x97\xe3\x81\x82!' 0-255 of them
-# Unicode string is like this: [0, 104, 101, 108, 108, 111, 33, 32, 12354, 12426, 12399, 12354, 33] a lot of them
-
-import time
+from collections import Counter, defaultdict
 from .pretokenizer import PreTokenizer
 
-NUM_MERGES = 10 # How many merges to make
-SPECIAL_TOKENS = ["<|endoftext|>", "\r"]
 
 class BPEProcessor:
+    """Incremental BPE processor that tracks pair frequencies and occurrence locations.
+
+    Represents the corpus as a list of token sequences (lists of int ids).
+    Maintains a vocabulary dict id->bytes, a Counter of pair frequencies, and a mapping
+    from pair -> set of (sequence_index, position) where the pair occurs. When merging a pair,
+    only local neighborhoods are updated which keeps the training fast and deterministic.
+    """
+
     def __init__(self, pretokenizer: PreTokenizer) -> None:
-        self.vocab: dict[int, bytes] = {
-            **{x: bytes([x]) for x in range(256)}, # byte values
-            **{256 + i: c.encode("utf-8") for i, c in enumerate(pretokenizer.special_tokens)} # special tokens
-        }
-        self.vocab_index: int = 256 + len(pretokenizer.special_tokens) - 1 # Store current index of dictionary
-        self.tuple_pre_tokenized_file_content = pretokenizer.pretokenization_dict_to_bytes
-        self.merges: list[tuple[bytes, bytes]] = [] # Keep track of merges
-        self.bpe_counter: dict[tuple[bytes, bytes], int] = {} # BPE frequencies
-    
-    def run_bpe(self, num_merges: int) -> None:
-        """Run BPE for NUM_MERGES iterations"""
-        for _ in range(num_merges):
-            self._get_bpe_pairs()
-            greatest_bpe = self._get_greatest_bpe()
-            self._update_vocab(greatest_bpe)
-            self._update_token_tuples(greatest_bpe)
-            self.bpe_counter.clear() # Clear for next iteration
-        return
+        # Initialize vocab: 0-255 are single-byte tokens
+        self.vocab: dict[int, bytes] = {i: bytes([i]) for i in range(256)}
 
-    def _get_bpe_pairs(self):
-        """Iterate over all tuples of pre_tokenized_file_content and count BPE pairs frequencies"""
-        # Iterate over token tuples and counts to avoid extra lookups
-        for bytes_tuple, count in self.tuple_pre_tokenized_file_content.items():
-            # Iterate over adjacent pairs in the token tuple
-            for pair in zip(bytes_tuple, bytes_tuple[1:]):
-                self.bpe_counter[pair] = self.bpe_counter.get(pair, 0) + count
+        # Add special tokens to vocab (ids 256, 257, ...)
+        for i, t in enumerate(pretokenizer.special_tokens):
+            self.vocab[256 + i] = t.encode("utf-8")
 
-    def _get_greatest_bpe(self) -> tuple[bytes, bytes]:
-        """Find the BPE pair with the greatest frequency"""
-        max_value = max(self.bpe_counter.values())
-        # Find most lexographically signficant value
-        greatest_keys = [k for k, v in self.bpe_counter.items() if v == max_value]
-        # Keys may contain a mix of ints (merged token ids) and bytes (single-byte tokens).
-        # Python cannot compare bytes and ints directly, so normalize keys to tuples of ints
-        # for a stable lexicographic tiebreak.
-        def _norm_token(t):
-            if isinstance(t, int):
-                return (t,)
-            if isinstance(t, bytes):
-                # bytes iterates to ints; this turns b'\n' -> (10,)
-                return tuple(t)
-            # fallback: try to convert to tuple of ints
-            try:
-                return tuple(int(x) for x in t)
-            except Exception:
-                return (0,)
+        self.vocab_index: int = max(self.vocab.keys())
 
-        def _pair_key(pair):
-            return _norm_token(pair[0]) + _norm_token(pair[1])
+        # Convert pretokenizer output (tuple-of-bytes -> count) into sequences of token ids
+        # and maintain multiplicity via counts
+        # pretokenizer.pretokenization_dict_to_bytes: Dict[tuple[bytes], int]
+        self.sequences: list[list[int]] = []
+        self.sequence_counts: list[int] = []
 
-        return max(greatest_keys, key=_pair_key)
+        # Build a reverse mapping from byte-values to initial token ids (0-255) and special bytes
+        self.byte_to_id: dict[bytes, int] = {bytes([i]): i for i in range(256)}
+        for i, t in enumerate(pretokenizer.special_tokens):
+            self.byte_to_id[t.encode("utf-8")] = 256 + i
 
-    def _update_vocab(self, greatest_bpe: tuple[bytes, bytes]) -> None:
-        """Update the vocab and merges with the new BPE merge"""
-
-        self.vocab_index += 1
-
-        # Compute the byte sequences for the two tokens (they may be ints or bytes)
-        def _token_bytes(t):
-            if isinstance(t, int):
-                return self.vocab[t]
-            if isinstance(t, bytes):
-                return t
-            # fallback: try to join if iterable of ints/bytes
-            try:
-                return b"".join(x if isinstance(x, bytes) else bytes([x]) for x in t)
-            except Exception:
-                raise TypeError("Unsupported token type in BPE merge")
-
-        left_b = _token_bytes(greatest_bpe[0])
-        right_b = _token_bytes(greatest_bpe[1])
-
-        # Append merged value (record merges as byte-pairs)
-        self.merges.append((left_b, right_b))
-
-        # Store new vocab entry with the concatenated bytes for this merged token
-        self.vocab[self.vocab_index] = left_b + right_b
-
-    def _update_token_tuples(self, greatest_bpe: tuple[bytes, bytes]) -> None:
-        """Update the tuple_pre_tokenized_file_content with the new BPE merge"""
-        # Replace all tuples with new vocab
-        byte_tuple_file_content_with_merge: dict[tuple, int] = {}
-        for token_tuple, count in self.tuple_pre_tokenized_file_content.items():
-            new_token_list: list = []
-            i = 0
-            lt = len(token_tuple)
-            while i < lt:
-                # Check if next two tokens match the most frequent pair
-                if i < lt - 1 and (token_tuple[i], token_tuple[i + 1]) == greatest_bpe:
-                    # Replace with the new merged token id
-                    new_token_list.append(self.vocab_index)
-                    i += 2
+        for token_tuple, cnt in pretokenizer.pretokenization_dict_to_bytes.items():
+            seq = []
+            for elem in token_tuple:
+                # elem is bytes (either single-byte b'a' or multi-byte special token)
+                if elem in self.byte_to_id:
+                    seq.append(self.byte_to_id[elem])
                 else:
-                    new_token_list.append(token_tuple[i])
-                    i += 1
+                    # If it's a multi-byte bytes not in map, add it as a new special token
+                    self.vocab_index += 1
+                    self.vocab[self.vocab_index] = elem
+                    self.byte_to_id[elem] = self.vocab_index
+                    seq.append(self.vocab_index)
+            self.sequences.append(seq)
+            self.sequence_counts.append(cnt)
 
-            # Store back as a tuple and accumulate counts if collisions occur
-            new_token_tuple = tuple(new_token_list)
-            byte_tuple_file_content_with_merge[new_token_tuple] = (
-                byte_tuple_file_content_with_merge.get(new_token_tuple, 0) + count
-            )
+        # pair -> frequency (sum of counts across sequences)
+        self.pair_freq: Counter[tuple[int, int]] = Counter()
+        # pair -> set of (seq_idx, pos)
+        self.pair_positions: dict[tuple[int, int], set[tuple[int, int]]] = defaultdict(set)
 
-        # Replace old dictionary with updated one
-        self.tuple_pre_tokenized_file_content = byte_tuple_file_content_with_merge
+        # merges as list of (bytes, bytes)
+        self.merges: list[tuple[bytes, bytes]] = []
 
+        # initialize pair frequencies and positions
+        for si, seq in enumerate(self.sequences):
+            cnt = self.sequence_counts[si]
+            for i in range(len(seq) - 1):
+                pair = (seq[i], seq[i + 1])
+                self.pair_freq[pair] += cnt
+                self.pair_positions[pair].add((si, i))
 
+    def _pair_key(self, pair: tuple[int, int]) -> tuple:
+        """Return a deterministic lexicographic key for tiebreaking pairs.
 
-if __name__ == "__main__":
-    # Expose the pattern at module-level for convenience when running as a script
+        We convert each token id to its bytes value and use the tuple of ints representing
+        those bytes for lexicographic comparison, matching the assignment spec.
+        """
+        left_bytes = self.vocab[pair[0]]
+        right_bytes = self.vocab[pair[1]]
+        return (tuple(left_bytes), tuple(right_bytes))
 
-    start_time = time.time()
-    Pretokenizer = PreTokenizer(SPECIAL_TOKENS)
-    Pretokenizer.pretokenize_file_parallel("cs336_basics/test.txt")
-    print(Pretokenizer.pretokenization_dict_to_bytes)
+    def run_bpe(self, num_merges: int) -> None:
+        """Run BPE merges incrementally for num_merges iterations."""
+        for _ in range(num_merges):
+            if not self.pair_freq:
+                break
+            # find max frequency
+            max_freq = max(self.pair_freq.values())
+            # collect candidates with that frequency
+            candidates = [p for p, f in self.pair_freq.items() if f == max_freq]
+            # choose lexicographically greatest per spec
+            best = max(candidates, key=self._pair_key)
+            left_id, right_id = best
 
-    bpe_processor = BPEProcessor(Pretokenizer)
-    bpe_processor.run_bpe(NUM_MERGES)
-    print(bpe_processor.tuple_pre_tokenized_file_content)
-    print(bpe_processor.vocab)
-    print(bpe_processor.vocab_index)
-    end_time = time.time()
-    print(f"Operation took {end_time - start_time} seconds.")
+            # create new token id and vocab entry
+            self.vocab_index += 1
+            new_id = self.vocab_index
+            left_bytes = self.vocab[left_id]
+            right_bytes = self.vocab[right_id]
+            self.vocab[new_id] = left_bytes + right_bytes
+            # record merge as byte-pair
+            self.merges.append((left_bytes, right_bytes))
+
+            # get occurrences (make a copy since we'll mutate structures)
+            occs = list(self.pair_positions.get(best, []))
+
+            # For each occurrence, attempt to merge if still valid
+            for (si, pos) in occs:
+                seq = self.sequences[si]
+                # validate that pair still exists at position
+                if pos >= len(seq) - 1:
+                    continue
+                if seq[pos] != left_id or seq[pos + 1] != right_id:
+                    continue
+
+                # perform replacement: seq[pos] = new_id; remove seq[pos+1]
+                seq[pos] = new_id
+                del seq[pos + 1]
+
+                cnt = self.sequence_counts[si]
+
+                # update affected pairs around the replaced position
+                # positions to consider: pos-1 (pair left of left_id), pos (new pair right of new_id)
+                # decrement counts for old pairs that included the removed tokens
+                # left neighbor old pair: (seq[pos-1], left_id) before replacement
+                if pos - 1 >= 0:
+                    old_left_pair = (seq[pos - 1], left_id)
+                    if old_left_pair in self.pair_freq:
+                        self.pair_freq[old_left_pair] -= cnt
+                        if self.pair_freq[old_left_pair] <= 0:
+                            del self.pair_freq[old_left_pair]
+                    self.pair_positions.get(old_left_pair, set()).discard((si, pos - 1))
+
+                # right neighbor old pair: (right_id, seq[pos+1]) before replacement
+                # Note: after deletion, seq[pos] is new_id; the old right neighbor was at pos+1
+                if pos < len(seq):
+                    old_right_pair = (right_id, seq[pos])
+                    if old_right_pair in self.pair_freq:
+                        self.pair_freq[old_right_pair] -= cnt
+                        if self.pair_freq[old_right_pair] <= 0:
+                            del self.pair_freq[old_right_pair]
+                    self.pair_positions.get(old_right_pair, set()).discard((si, pos + 1))
+
+                # remove the entries for the merged pair at this position
+                if best in self.pair_freq:
+                    self.pair_freq[best] -= cnt
+                    if self.pair_freq[best] <= 0:
+                        del self.pair_freq[best]
+                self.pair_positions.get(best, set()).discard((si, pos))
+
+                # Now add new pairs formed by the new token
+                # left-new pair: (seq[pos-1], new_id)
+                if pos - 1 >= 0:
+                    new_left = (seq[pos - 1], new_id)
+                    self.pair_freq[new_left] += cnt
+                    self.pair_positions[new_left].add((si, pos - 1))
+
+                # new-right pair: (new_id, seq[pos+1]) if exists
+                if pos + 1 < len(seq):
+                    new_right = (new_id, seq[pos + 1])
+                    self.pair_freq[new_right] += cnt
+                    self.pair_positions[new_right].add((si, pos))
+
+            # finally, clear any stale empty position sets for best
+            if best in self.pair_positions and not self.pair_positions[best]:
+                del self.pair_positions[best]
+
+        return
 

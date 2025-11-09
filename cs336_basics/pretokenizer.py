@@ -8,7 +8,8 @@ from multiprocessing import Pool
 from typing import BinaryIO, Dict
 
 # Default number of worker processes used when splitting files
-NUM_PRETOKENIZING_PROCESSES = 4
+# Use single-process by default to ensure deterministic behavior in tests
+NUM_PRETOKENIZING_PROCESSES = 1
 
 # module-level globals for workers
 _worker_pat: re.Pattern | None = None
@@ -34,10 +35,6 @@ def _process_chunk_worker(start: int, end: int, filepath: str) -> Dict[str, int]
         f.seek(start)
         chunk_bytes = f.read(end - start)
 
-        # remove special tokens at the byte level first (avoids decoding issues)
-        for t in _worker_special_tokens:
-            chunk_bytes = chunk_bytes.replace(t.encode("utf-8"), b"")
-
         # normalize line endings in bytes, then decode
         chunk_bytes = chunk_bytes.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
         chunk_data = chunk_bytes.decode("utf-8", errors="ignore")
@@ -59,7 +56,8 @@ class PreTokenizer:
     def _initialize_PAT(self) -> None:
         special_patterns = [re.escape(c) for c in self.special_tokens]
         special_group = "|".join(special_patterns)
-        PAT = rf"""{special_group}|'(?:[sdmt]|ll|ve|re)| ?\p{{L}}+| ?\p{{N}}+| ?[^\s\p{{L}}\p{{N}}]+|\s+(?!\S)|\s+ | """
+        # Use the canonical GPT-2 pretokenization pattern from the assignment
+        PAT = rf"{special_group}|'(?:[sdmt]|ll|ve|re)| ?\p{{L}}+| ?\p{{N}}+| ?[^\s\p{{L}}\p{{N}}]+|\s+(?!\S)|\s+"
         self.PAT = re.compile(PAT)
         
     def _find_EOF_boundaries(self, file: BinaryIO, desired_num_chunks: int, 
@@ -123,11 +121,15 @@ class PreTokenizer:
 
             chunks = [(boundaries[i], boundaries[i+1], file_path) for i in range(len(boundaries)-1)]
             
-            with Pool(processes=NUM_PRETOKENIZING_PROCESSES,
-                      initializer=_init_worker,
-                      initargs=(self.PAT, self.special_tokens)) as pool:
-                # use starmap so each arg is a separate parameter
-                results = pool.starmap(_process_chunk_worker, chunks)
+            if NUM_PRETOKENIZING_PROCESSES <= 1:
+                _init_worker(self.PAT, self.special_tokens)
+                results = [_process_chunk_worker(start, end, file_path) for start, end, file_path in chunks]
+            else:
+                with Pool(processes=NUM_PRETOKENIZING_PROCESSES,
+                          initializer=_init_worker,
+                          initargs=(self.PAT, self.special_tokens)) as pool:
+                    # use starmap so each arg is a separate parameter
+                    results = pool.starmap(_process_chunk_worker, chunks)
 
             for chunk_result in results:
                 for token, count in chunk_result.items():
@@ -140,14 +142,23 @@ class PreTokenizer:
         """
         Convert the global pretokenization dict from str to tuple[bytes]
         """
+        # Represent tokens as tuples of integer byte values. Special tokens are
+        # assigned integer ids starting at 256 (so they won't collide with single
+        # byte values 0-255), and are stored as a single-element tuple containing
+        # that integer id.
+        special_to_id = {t: 256 + i for i, t in enumerate(self.special_tokens)}
+
         for token, count in self.global_pretokenization_dict.items():
-            # Encode the string to bytes
-            token_bytes = token.encode("utf-8")
+            if token in special_to_id:
+                token_tuple = (special_to_id[token],)
+            else:
+                token_bytes = token.encode("utf-8")
+                # store as tuple of ints (each 0-255)
+                token_tuple = tuple(b for b in token_bytes)
 
-            # Represent each byte as a bytes object of length 1
-            token_tuple = tuple(bytes([b]) for b in token_bytes)
-
-            # Store in new dictionary
-            self.pretokenization_dict_to_bytes[token_tuple] = count
+            # Store in new dictionary (accumulate counts)
+            self.pretokenization_dict_to_bytes[token_tuple] = (
+                self.pretokenization_dict_to_bytes.get(token_tuple, 0) + count
+            )
 
 
