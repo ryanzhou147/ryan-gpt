@@ -4,12 +4,11 @@ Implements parallel pre-tokenization with special token handling.
 """
 import os
 import regex as re
-import time
 from multiprocessing import Pool
-from typing import BinaryIO, Tuple, Dict
+from typing import BinaryIO, Dict
 
+# Default number of worker processes used when splitting files
 NUM_PRETOKENIZING_PROCESSES = 4
-SPECIAL_TOKENS = ["<|endoftext|>", "\r"]
 
 # module-level globals for workers
 _worker_pat: re.Pattern | None = None
@@ -52,15 +51,8 @@ def _process_chunk_worker(start: int, end: int, filepath: str) -> Dict[str, int]
 class PreTokenizer:
     def __init__(self, special_tokens: list[str]) -> None:
         self.special_tokens: list[str] = special_tokens
-        self.vocab: dict[int, bytes] = {
-            **{x: bytes([x]) for x in range(256)}, # byte values
-            **{256 + i: c.encode("utf-8") for i, c in enumerate(special_tokens)} # special tokens
-        }
-        self.vocab_index: int = 256 + len(special_tokens) # Store current index of dictionary
-        self.PAT: str # Pre-tokenization pattern
+        self.PAT = None # Pre-tokenization pattern
         self._initialize_PAT()
-        # Precompile pattern for use in the parent process
-        self._pat_re = re.compile(self.PAT)
         self.global_pretokenization_dict: Dict[str, int] = {} # Global frequency table
         self.pretokenization_dict_to_bytes: Dict[tuple[bytes], int] = {} # Global frequency table in bytes
         
@@ -68,8 +60,7 @@ class PreTokenizer:
         special_patterns = [re.escape(c) for c in self.special_tokens]
         special_group = "|".join(special_patterns)
         PAT = rf"""{special_group}|'(?:[sdmt]|ll|ve|re)| ?\p{{L}}+| ?\p{{N}}+| ?[^\s\p{{L}}\p{{N}}]+|\s+(?!\S)|\s+ | """
-        self.PAT = PAT
-        return
+        self.PAT = re.compile(PAT)
         
     def _find_EOF_boundaries(self, file: BinaryIO, desired_num_chunks: int, 
                             split_special_token: bytes) -> list[int]:
@@ -159,19 +150,4 @@ class PreTokenizer:
             # Store in new dictionary
             self.pretokenization_dict_to_bytes[token_tuple] = count
 
-
-start_time = time.time()
-Pretokenizer = PreTokenizer(SPECIAL_TOKENS)
-
-if __name__ == "__main__":
-    # Expose the pattern at module-level for convenience when running as a script
-    PAT = Pretokenizer.PAT
-    print(PAT)
-    print(Pretokenizer.vocab)
-    print(Pretokenizer.vocab_index)
-    Pretokenizer.pretokenize_file_parallel("cs336_basics/test.txt")
-    print(Pretokenizer.global_pretokenization_dict)
-    print(Pretokenizer.pretokenization_dict_to_bytes)
-    end_time = time.time()
-    print(f"Operation took {end_time - start_time} seconds.")
 
