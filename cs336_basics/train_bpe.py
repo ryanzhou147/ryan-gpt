@@ -1,61 +1,20 @@
 # UTF-8 is something like this: \x93\xe3\x81\xaa\xe3\x81\x97\xe3\x81\x82!' 0-255 of them
 # Unicode string is like this: [0, 104, 101, 108, 108, 111, 33, 32, 12354, 12426, 12399, 12354, 33] a lot of them
 
-import regex as re
-import os
-from collections import defaultdict
+from pretokenizer import SPECIAL_TOKENS, PreTokenizer
 
-# Opens and extracts text from training data
-current_directory = os.getcwd()
-print(current_directory)
-input_path = os.path.join(current_directory, "cs336_basics/test.txt")
-try:
-    with open(input_path, "r") as file:
-        file_content = file.read()
-except FileNotFoundError:
-    print(f"File not found: {input_path}")
+Pretokenizer = PreTokenizer(SPECIAL_TOKENS)
 
-# Create vocab dictionary 0-255 bytes and special tokens
-special_tokens = ["<|endoftext|>"]
-vocab: dict[int, bytes] = {
-    **{x: bytes([x]) for x in range(256)}, # byte values
-    **{256 + i: c.encode("utf-8") for i, c in enumerate(special_tokens)} # special tokens
-}
-vocab_index = 256 + len(special_tokens) # Store current index of dictionary
+if __name__ == "__main__":
+    # Expose the pattern at module-level for convenience when running as a script
+    PAT = Pretokenizer.PAT
+    print(PAT)
+    print(Pretokenizer.vocab)
+    print(Pretokenizer.vocab_index)
+    Pretokenizer.pretokenize_file_parallel("cs336_basics/test.txt")
+    print(Pretokenizer.global_pretokenization_dict)
+    print(Pretokenizer.pretokenization_dict_to_bytes)
 
-# TEMP: strip all special tokens
-# TODO: run parallel implementation for each chunk
-for token in special_tokens:
-    file_content = re.sub(re.escape(token), "", file_content)
-print(file_content)
-
-# Pre-tokenization of GPT-2
-# Adds escape character to regex recognized patterns like "|" in "<|endoftext|>"
-special_patterns = [re.escape(c) for c in special_tokens]
-special_group = "|".join(special_patterns)
-PAT = rf"""{special_group}|'(?:[sdmt]|ll|ve|re)| ?\p{{L}}+| ?\p{{N}}+| ?[^\s\p{{L}}\p{{N}}]+|\s+(?!\S)|\s+ | """
-
-# Pre-tokenized pattern with frequency
-pre_tokenized_file_content = {}
-for pre_token in re.finditer(PAT, file_content):
-    pre_tokenized_file_content[pre_token.group()] = pre_tokenized_file_content.get(pre_token.group(), 0) + 1
-
-print(pre_tokenized_file_content)
-
-# Pre-tokenized pattern split into dict[tuple[bytes], int]
-tuple_pre_tokenized_file_content = {}
-
-for token, count in pre_tokenized_file_content.items():
-    # Encode the string to bytes
-    token_bytes = token.encode("utf-8")
-
-    # Represent each byte as a bytes object of length 1
-    token_tuple = tuple(bytes([b]) for b in token_bytes)
-
-    # Store in new dictionary
-    tuple_pre_tokenized_file_content[token_tuple] = count
-
-print(tuple_pre_tokenized_file_content)
 
 # BPE Processing
 merges: list[tuple[bytes, bytes]] = [] # Keep track of merges
@@ -113,3 +72,56 @@ for i in range(NUM_MERGES):
 
 print(vocab)
 print(merges)
+
+
+# # Opens and extracts text from training data
+# current_directory = os.getcwd()
+# print(current_directory)
+# input_path = os.path.join(current_directory, "cs336_basics/test.txt")
+# try:
+#     with open(input_path, "r") as file:
+#         file_content = file.read()
+# except FileNotFoundError:
+#     print(f"File not found: {input_path}")
+
+# # Create vocab dictionary 0-255 bytes and special tokens
+# special_tokens = ["<|endoftext|>"]
+# vocab: dict[int, bytes] = {
+#     **{x: bytes([x]) for x in range(256)}, # byte values
+#     **{256 + i: c.encode("utf-8") for i, c in enumerate(special_tokens)} # special tokens
+# }
+# vocab_index = 256 + len(special_tokens) # Store current index of dictionary
+
+# # TEMP: strip all special tokens
+# # TODO: run parallel implementation for each chunk
+# for token in special_tokens:
+#     file_content = re.sub(re.escape(token), "", file_content)
+# print(file_content)
+
+# # Pre-tokenization of GPT-2
+# # Adds escape character to regex recognized patterns like "|" in "<|endoftext|>"
+# special_patterns = [re.escape(c) for c in special_tokens]
+# special_group = "|".join(special_patterns)
+# PAT = rf"""{special_group}|'(?:[sdmt]|ll|ve|re)| ?\p{{L}}+| ?\p{{N}}+| ?[^\s\p{{L}}\p{{N}}]+|\s+(?!\S)|\s+ | """
+
+# # Pre-tokenized pattern with frequency
+# pre_tokenized_file_content = {}
+# for pre_token in re.finditer(PAT, file_content):
+#     pre_tokenized_file_content[pre_token.group()] = pre_tokenized_file_content.get(pre_token.group(), 0) + 1
+
+# print(pre_tokenized_file_content)
+
+# # Pre-tokenized pattern split into dict[tuple[bytes], int]
+# tuple_pre_tokenized_file_content = {}
+
+# for token, count in pre_tokenized_file_content.items():
+#     # Encode the string to bytes
+#     token_bytes = token.encode("utf-8")
+
+#     # Represent each byte as a bytes object of length 1
+#     token_tuple = tuple(bytes([b]) for b in token_bytes)
+
+#     # Store in new dictionary
+#     tuple_pre_tokenized_file_content[token_tuple] = count
+
+# print(tuple_pre_tokenized_file_content)

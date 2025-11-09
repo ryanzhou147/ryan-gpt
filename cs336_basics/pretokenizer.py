@@ -4,12 +4,51 @@ Implements parallel pre-tokenization with special token handling.
 """
 import os
 import regex as re
+import time
 from multiprocessing import Pool
 from typing import BinaryIO, Tuple, Dict
 
 NUM_PRETOKENIZING_PROCESSES = 4
 SPECIAL_TOKENS = ["<|endoftext|>", "\r"]
 
+# module-level globals for workers
+_worker_pat: re.Pattern | None = None
+_worker_special_tokens: list[str] | None = None
+_worker_initialized = False
+
+def _init_worker(pat_str: str, special_tokens: list[str]):
+    """Initializer run once in each worker process: compile pattern and store tokens."""
+    global _worker_pat, _worker_special_tokens, _worker_initialized
+    if _worker_initialized:
+        return
+    _worker_pat = re.compile(pat_str)
+    _worker_special_tokens = special_tokens
+    _worker_initialized = True
+
+
+def _process_chunk_worker(start: int, end: int, filepath: str) -> Dict[str, int]:
+    """Module-level worker: read bytes, remove special tokens, decode and tokenize."""
+    assert _worker_pat is not None and _worker_special_tokens is not None, "Worker not initialized"
+    local_counts: Dict[str, int] = {}
+
+    with open(filepath, "rb") as f:
+        f.seek(start)
+        chunk_bytes = f.read(end - start)
+
+        # remove special tokens at the byte level first (avoids decoding issues)
+        for t in _worker_special_tokens:
+            chunk_bytes = chunk_bytes.replace(t.encode("utf-8"), b"")
+
+        # normalize line endings in bytes, then decode
+        chunk_bytes = chunk_bytes.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        chunk_data = chunk_bytes.decode("utf-8", errors="ignore")
+
+        for m in _worker_pat.finditer(chunk_data):
+            tok = m.group()
+            local_counts[tok] = local_counts.get(tok, 0) + 1
+
+    return local_counts
+ 
 class PreTokenizer:
     def __init__(self, special_tokens: list[str]) -> None:
         self.special_tokens: list[str] = special_tokens
@@ -18,15 +57,19 @@ class PreTokenizer:
             **{256 + i: c.encode("utf-8") for i, c in enumerate(special_tokens)} # special tokens
         }
         self.vocab_index: int = 256 + len(special_tokens) # Store current index of dictionary
-        self.PAT: str = self._initialize_PAT() # Pre-tokenization pattern
+        self.PAT: str # Pre-tokenization pattern
+        self._initialize_PAT()
+        # Precompile pattern for use in the parent process
+        self._pat_re = re.compile(self.PAT)
         self.global_pretokenization_dict: Dict[str, int] = {} # Global frequency table
         self.pretokenization_dict_to_bytes: Dict[tuple[bytes], int] = {} # Global frequency table in bytes
         
-    def _initialize_PAT(self) -> str:
+    def _initialize_PAT(self) -> None:
         special_patterns = [re.escape(c) for c in self.special_tokens]
         special_group = "|".join(special_patterns)
         PAT = rf"""{special_group}|'(?:[sdmt]|ll|ve|re)| ?\p{{L}}+| ?\p{{N}}+| ?[^\s\p{{L}}\p{{N}}]+|\s+(?!\S)|\s+ | """
-        return PAT
+        self.PAT = PAT
+        return
         
     def _find_EOF_boundaries(self, file: BinaryIO, desired_num_chunks: int, 
                             split_special_token: bytes) -> list[int]:
@@ -65,31 +108,13 @@ class PreTokenizer:
                 # Find the special token in the mini chunk
                 found_at = mini_chunk.find(split_special_token)
                 if found_at != -1:
-                    chunk_boundaries[bi] = initial_position + found_at
+                    # place boundary AFTER the special token so it is not split across chunks
+                    chunk_boundaries[bi] = initial_position + found_at + len(split_special_token)
                     break
                 initial_position += mini_chunk_size
 
         # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
         return sorted(set(chunk_boundaries))
-
-    def _process_chunk(self, args: Tuple[int, int, str]) -> Dict[str, int]:
-        """
-        Worker function for processing each chunk
-        Strips special tokens and runs pre-tokenization
-        """
-        start, end, filepath = args
-        local_counts: Dict[str, int] = {}
-
-        with open(filepath, "rb") as f:
-            f.seek(start)
-            chunk_data = f.read(end - start).decode("utf-8", errors="ignore")
-            for token in self.special_tokens:
-                chunk_data = re.sub(re.escape(token), "", chunk_data)
-            # run pre-tokenization and count frequencies
-            for pre_token in re.finditer(self.PAT, chunk_data):
-                local_counts[pre_token.group()] = local_counts.get(pre_token.group(), 0) + 1
-        print(local_counts)
-        return local_counts
 
     def pretokenize_file_parallel(self, file_path_from_root_folder: str) -> None:
         """
@@ -101,21 +126,24 @@ class PreTokenizer:
         with open(file_path, "rb") as f:
 
             boundaries = self._find_EOF_boundaries(f, NUM_PRETOKENIZING_PROCESSES, b"<|endoftext|>")
-            print(boundaries)
 
             # Run through every consecutive boundaries
             # Start pre-tokenization process for each
 
             chunks = [(boundaries[i], boundaries[i+1], file_path) for i in range(len(boundaries)-1)]
             
-            with Pool(processes=NUM_PRETOKENIZING_PROCESSES) as pool:
-                results = pool.map(self._process_chunk, chunks)
+            with Pool(processes=NUM_PRETOKENIZING_PROCESSES,
+                      initializer=_init_worker,
+                      initargs=(self.PAT, self.special_tokens)) as pool:
+                # use starmap so each arg is a separate parameter
+                results = pool.starmap(_process_chunk_worker, chunks)
 
             for chunk_result in results:
                 for token, count in chunk_result.items():
                     self.global_pretokenization_dict[token] = self.global_pretokenization_dict.get(token, 0) + count
             
             self._convert_to_bytes_dict()
+            return self.pretokenization_dict_to_bytes
   
     def _convert_to_bytes_dict(self) -> None:
         """
@@ -131,6 +159,8 @@ class PreTokenizer:
             # Store in new dictionary
             self.pretokenization_dict_to_bytes[token_tuple] = count
 
+
+start_time = time.time()
 Pretokenizer = PreTokenizer(SPECIAL_TOKENS)
 
 if __name__ == "__main__":
@@ -142,4 +172,6 @@ if __name__ == "__main__":
     Pretokenizer.pretokenize_file_parallel("cs336_basics/test.txt")
     print(Pretokenizer.global_pretokenization_dict)
     print(Pretokenizer.pretokenization_dict_to_bytes)
+    end_time = time.time()
+    print(f"Operation took {end_time - start_time} seconds.")
 
