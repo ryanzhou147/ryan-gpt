@@ -1,8 +1,8 @@
 from pathlib import Path
 from typing import List, Tuple, Dict
 
-from pretokenizer import PreTokenizer
-from bpe_tokenizer import BPEProcessor
+from .pretokenizer import PreTokenizer
+from .bpe_tokenizer import BPEProcessor
 
 def train_bpe(input_path: str | Path, vocab_size: int, special_tokens: List[str]) -> Tuple[Dict[int, bytes], List[Tuple[bytes, bytes]]]:
     """Train a byte-level BPE tokenizer.
