@@ -1,11 +1,8 @@
-from __future__ import annotations
-
 from pathlib import Path
 from typing import List, Tuple, Dict
 
-from .pretokenizer import PreTokenizer
-from .bpe_tokenizer import BPEProcessor
-
+from pretokenizer import PreTokenizer
+from bpe_tokenizer import BPEProcessor
 
 def train_bpe(input_path: str | Path, vocab_size: int, special_tokens: List[str]) -> Tuple[Dict[int, bytes], List[Tuple[bytes, bytes]]]:
     """Train a byte-level BPE tokenizer.
@@ -23,8 +20,8 @@ def train_bpe(input_path: str | Path, vocab_size: int, special_tokens: List[str]
 
     # Step 1: pretokenize using provided PreTokenizer
     pretokenizer = PreTokenizer(special_tokens)
-    # pretokenize_file_parallel returns the bytes->count mapping
-    token_dict = pretokenizer.pretokenize_file_parallel(str(input_path))
+    # pretokenize the file in parallel
+    pretokenizer.pretokenize_file_parallel(str(input_path))
 
     # Step 2: initialize BPE processor with the pretokenizer results
     bpe = BPEProcessor(pretokenizer)
@@ -38,4 +35,18 @@ def train_bpe(input_path: str | Path, vocab_size: int, special_tokens: List[str]
     num_merges = vocab_size - initial_vocab
     bpe.run_bpe(num_merges)
 
+    print(bpe.vocab, bpe.merges)
     return bpe.vocab, bpe.merges
+
+
+if __name__ == "__main__":
+    import time
+    start_time = time.perf_counter()
+    # Call with a larger vocab size so merges will be performed for the small test file
+    vocab, merges = train_bpe("./test.txt", 260, ["<|endoftext|>"])
+    # Print a compact summary so running this script shows useful output
+    print("vocab size:", len(vocab))
+    # print a few vocab entries and merges for quick inspection
+    print("BPE training complete.")
+    end_time = time.perf_counter()
+    print(f"Training took {end_time - start_time:.2f} seconds.")

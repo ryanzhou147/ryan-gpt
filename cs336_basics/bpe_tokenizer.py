@@ -1,5 +1,5 @@
 from collections import Counter, defaultdict
-from .pretokenizer import PreTokenizer
+from pretokenizer import PreTokenizer
 
 
 class BPEProcessor:
