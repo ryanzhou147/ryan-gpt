@@ -142,19 +142,20 @@ class PreTokenizer:
         """
         Convert the global pretokenization dict from str to tuple[bytes]
         """
-        # Represent tokens as tuples of integer byte values. Special tokens are
-        # assigned integer ids starting at 256 (so they won't collide with single
-        # byte values 0-255), and are stored as a single-element tuple containing
-        # that integer id.
-        special_to_id = {t: 256 + i for i, t in enumerate(self.special_tokens)}
+        # Represent tokens as tuples of bytes. Single-byte tokens (regular
+        # characters or punctuation) are stored as a sequence of single-byte
+        # bytes objects (e.g., b'a', b'b', ...). Special tokens are stored as a
+        # single-element tuple containing the entire special token bytestring
+        # (e.g., (b"<|endoftext|>",)). This matches what BPEProcessor expects.
 
         for token, count in self.global_pretokenization_dict.items():
-            if token in special_to_id:
-                token_tuple = (special_to_id[token],)
+            if token in self.special_tokens:
+                # special token -> one element: the full bytes of the token
+                token_tuple = (token.encode("utf-8"),)
             else:
                 token_bytes = token.encode("utf-8")
-                # store as tuple of ints (each 0-255)
-                token_tuple = tuple(b for b in token_bytes)
+                # split into single-byte bytes objects
+                token_tuple = tuple(bytes([b]) for b in token_bytes)
 
             # Store in new dictionary (accumulate counts)
             self.pretokenization_dict_to_bytes[token_tuple] = (

@@ -95,69 +95,28 @@ class BPEProcessor:
             # record merge as byte-pair
             self.merges.append((left_bytes, right_bytes))
 
-            # get occurrences (make a copy since we'll mutate structures)
-            occs = list(self.pair_positions.get(best, []))
+            # Apply merges to all sequences. For correctness and to avoid
+            # subtle bugs updating positions in-place, we process each
+            # sequence independently (right-to-left) and then rebuild the
+            # global pair frequency and position tables from scratch.
+            for si, seq in enumerate(self.sequences):
+                # collect all positions where the best pair occurs in this seq
+                positions = [i for i in range(len(seq) - 1) if seq[i] == left_id and seq[i + 1] == right_id]
+                # process right-to-left so deletions don't affect earlier indices
+                for pos in reversed(positions):
+                    # replace at pos
+                    seq[pos] = new_id
+                    del seq[pos + 1]
 
-            # For each occurrence, attempt to merge if still valid
-            for (si, pos) in occs:
-                seq = self.sequences[si]
-                # validate that pair still exists at position
-                if pos >= len(seq) - 1:
-                    continue
-                if seq[pos] != left_id or seq[pos + 1] != right_id:
-                    continue
-
-                # perform replacement: seq[pos] = new_id; remove seq[pos+1]
-                seq[pos] = new_id
-                del seq[pos + 1]
-
+            # After modifying sequences, rebuild pair_freq and pair_positions
+            self.pair_freq = Counter()
+            self.pair_positions = defaultdict(set)
+            for si, seq in enumerate(self.sequences):
                 cnt = self.sequence_counts[si]
-
-                # update affected pairs around the replaced position
-                # positions to consider: pos-1 (pair left of left_id), pos (new pair right of new_id)
-                # decrement counts for old pairs that included the removed tokens
-                # left neighbor old pair: (seq[pos-1], left_id) before replacement
-                if pos - 1 >= 0:
-                    old_left_pair = (seq[pos - 1], left_id)
-                    if old_left_pair in self.pair_freq:
-                        self.pair_freq[old_left_pair] -= cnt
-                        if self.pair_freq[old_left_pair] <= 0:
-                            del self.pair_freq[old_left_pair]
-                    self.pair_positions.get(old_left_pair, set()).discard((si, pos - 1))
-
-                # right neighbor old pair: (right_id, seq[pos+1]) before replacement
-                # Note: after deletion, seq[pos] is new_id; the old right neighbor was at pos+1
-                if pos < len(seq):
-                    old_right_pair = (right_id, seq[pos])
-                    if old_right_pair in self.pair_freq:
-                        self.pair_freq[old_right_pair] -= cnt
-                        if self.pair_freq[old_right_pair] <= 0:
-                            del self.pair_freq[old_right_pair]
-                    self.pair_positions.get(old_right_pair, set()).discard((si, pos + 1))
-
-                # remove the entries for the merged pair at this position
-                if best in self.pair_freq:
-                    self.pair_freq[best] -= cnt
-                    if self.pair_freq[best] <= 0:
-                        del self.pair_freq[best]
-                self.pair_positions.get(best, set()).discard((si, pos))
-
-                # Now add new pairs formed by the new token
-                # left-new pair: (seq[pos-1], new_id)
-                if pos - 1 >= 0:
-                    new_left = (seq[pos - 1], new_id)
-                    self.pair_freq[new_left] += cnt
-                    self.pair_positions[new_left].add((si, pos - 1))
-
-                # new-right pair: (new_id, seq[pos+1]) if exists
-                if pos + 1 < len(seq):
-                    new_right = (new_id, seq[pos + 1])
-                    self.pair_freq[new_right] += cnt
-                    self.pair_positions[new_right].add((si, pos))
-
-            # finally, clear any stale empty position sets for best
-            if best in self.pair_positions and not self.pair_positions[best]:
-                del self.pair_positions[best]
+                for i in range(len(seq) - 1):
+                    pair = (seq[i], seq[i + 1])
+                    self.pair_freq[pair] += cnt
+                    self.pair_positions[pair].add((si, i))
 
         return
 
