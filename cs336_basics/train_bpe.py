@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Tuple, Dict
 from time import time
+import cProfile, pstats
 
 from cs336_basics.pretokenizer import PreTokenizer
 from cs336_basics.bpe_tokenizer import BPEProcessor
@@ -44,10 +45,31 @@ def train_bpe(input_path: str | Path, vocab_size: int, special_tokens: List[str]
 
 if __name__ == "__main__":
     start_time = time()
-    vocab, merges = train_bpe(
-        input_path="data/TinyStoriesV2-GPT4-valid.txt",
-        vocab_size=1000,
-        special_tokens=["<|endoftext|>", "<|pad|>"]
+    pr = cProfile.Profile()
+
+    result = pr.runcall(train_bpe,
+        input_path='data/TinyStoriesV2-GPT4-valid.txt', vocab_size=10000, special_tokens=['<|endoftext|>']
     )
+
     end_time = time()
+
+    stats = pstats.Stats(pr).strip_dirs()
+    stats.sort_stats("cumulative")  # sort by cumulative time
+    stats.print_stats(10)           # print top 10 functions
+
     print(f"Training completed in {end_time - start_time:.2f} seconds.")
+    vocab, merges = result
+    max_token = max(vocab.values(), key=len)
+    print(max_token, len(max_token))
+
+    top_tokens = sorted(vocab.items(), key=lambda x: len(x[1]), reverse=True)[:10]
+
+    print(f"{'Vocab ID':<8} {' Token':<20} {'Bytes':<5}")
+    print("-" * 40)
+
+    for vocab_id, token_bytes in top_tokens:
+        try:
+            token_str = token_bytes.decode("utf-8")  # decode for readability
+        except UnicodeDecodeError:
+            token_str = repr(token_bytes)  # fallback if not valid UTF-8
+        print(f"{vocab_id:<8} {token_str:<20} {len(token_bytes):<5}")
