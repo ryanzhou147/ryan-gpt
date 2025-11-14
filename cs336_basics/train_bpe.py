@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import List, Tuple, Dict
+from time import time
 
-from .pretokenizer import PreTokenizer
-from .bpe_tokenizer import BPEProcessor
+from cs336_basics.pretokenizer import PreTokenizer
+from cs336_basics.bpe_tokenizer import BPEProcessor
 
 
 def train_bpe(input_path: str | Path, vocab_size: int, special_tokens: List[str]) -> Tuple[Dict[int, bytes], List[Tuple[bytes, bytes]]]:
@@ -42,8 +43,11 @@ def train_bpe(input_path: str | Path, vocab_size: int, special_tokens: List[str]
     return bpe.vocab, bpe.merges
 
 if __name__ == "__main__":
+    start_time = time()
     vocab, merges = train_bpe(
-        input_path="tests/fixtures/tinystories_sample_5M.txt",
-        vocab_size=300,
+        input_path="data/TinyStoriesV2-GPT4-valid.txt",
+        vocab_size=1000,
         special_tokens=["<|endoftext|>", "<|pad|>"]
     )
+    end_time = time()
+    print(f"Training completed in {end_time - start_time:.2f} seconds.")

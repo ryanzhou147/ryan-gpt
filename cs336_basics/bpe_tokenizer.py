@@ -1,5 +1,5 @@
 from collections import Counter
-from .pretokenizer import PreTokenizer
+from cs336_basics.pretokenizer import PreTokenizer
 
 
 class BPEProcessor:
