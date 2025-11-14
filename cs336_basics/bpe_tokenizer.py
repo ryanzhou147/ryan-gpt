@@ -1,14 +1,13 @@
-from collections import Counter, defaultdict
+from collections import Counter
 from .pretokenizer import PreTokenizer
 
 
 class BPEProcessor:
-    """Incremental BPE processor that tracks pair frequencies and occurrence locations.
+    """Incremental BPE processor that tracks pair frequencies.
 
     Represents the corpus as a list of token sequences (lists of int ids).
-    Maintains a vocabulary dict id->bytes, a Counter of pair frequencies, and a mapping
-    from pair -> set of (sequence_index, position) where the pair occurs. When merging a pair,
-    only local neighborhoods are updated which keeps the training fast and deterministic.
+    Maintains a vocabulary dict id->bytes and a Counter of pair frequencies. Merges
+    are applied greedily and pair frequencies are rebuilt after each merge.
     """
 
     def __init__(self, pretokenizer: PreTokenizer) -> None:
@@ -32,7 +31,7 @@ class BPEProcessor:
         for i, t in enumerate(pretokenizer.special_tokens):
             self.byte_to_id[t.encode("utf-8")] = 256 + i
 
-        for token_tuple, cnt in pretokenizer.pretokenization_dict_to_bytes.items():
+        for token_tuple, count in pretokenizer.pretokenization_dict_to_bytes.items():
             seq = []
             for elem in token_tuple:
                 # elem is bytes (either single-byte b'a' or multi-byte special token)
@@ -45,23 +44,19 @@ class BPEProcessor:
                     self.byte_to_id[elem] = self.vocab_index
                     seq.append(self.vocab_index)
             self.sequences.append(seq)
-            self.sequence_counts.append(cnt)
-
+            self.sequence_counts.append(count)
         # pair -> frequency (sum of counts across sequences)
         self.pair_freq: Counter[tuple[int, int]] = Counter()
-        # pair -> set of (seq_idx, pos)
-        self.pair_positions: dict[tuple[int, int], set[tuple[int, int]]] = defaultdict(set)
 
         # merges as list of (bytes, bytes)
         self.merges: list[tuple[bytes, bytes]] = []
 
-        # initialize pair frequencies and positions
+        # initialize pair frequencies
         for si, seq in enumerate(self.sequences):
             cnt = self.sequence_counts[si]
             for i in range(len(seq) - 1):
                 pair = (seq[i], seq[i + 1])
                 self.pair_freq[pair] += cnt
-                self.pair_positions[pair].add((si, i))
 
     def _pair_key(self, pair: tuple[int, int]) -> tuple:
         """Return a deterministic lexicographic key for tiebreaking pairs.
@@ -108,15 +103,12 @@ class BPEProcessor:
                     seq[pos] = new_id
                     del seq[pos + 1]
 
-            # After modifying sequences, rebuild pair_freq and pair_positions
+            # After modifying sequences, rebuild pair_freq
             self.pair_freq = Counter()
-            self.pair_positions = defaultdict(set)
             for si, seq in enumerate(self.sequences):
                 cnt = self.sequence_counts[si]
                 for i in range(len(seq) - 1):
                     pair = (seq[i], seq[i + 1])
                     self.pair_freq[pair] += cnt
-                    self.pair_positions[pair].add((si, i))
 
-        return
 

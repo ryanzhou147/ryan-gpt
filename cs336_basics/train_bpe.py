@@ -38,4 +38,5 @@ def train_bpe(input_path: str | Path, vocab_size: int, special_tokens: List[str]
     num_merges = vocab_size - initial_vocab
     bpe.run_bpe(num_merges)
 
+    print(bpe.vocab, bpe.merges)
     return bpe.vocab, bpe.merges
