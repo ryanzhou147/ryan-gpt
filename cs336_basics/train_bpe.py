@@ -40,3 +40,10 @@ def train_bpe(input_path: str | Path, vocab_size: int, special_tokens: List[str]
 
     print(bpe.vocab, bpe.merges)
     return bpe.vocab, bpe.merges
+
+if __name__ == "__main__":
+    vocab, merges = train_bpe(
+        input_path="tests/fixtures/tinystories_sample_5M.txt",
+        vocab_size=300,
+        special_tokens=["<|endoftext|>", "<|pad|>"]
+    )

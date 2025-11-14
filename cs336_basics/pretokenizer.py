@@ -9,7 +9,7 @@ from typing import BinaryIO, Dict
 
 # Default number of worker processes used when splitting files
 # Use single-process by default to ensure deterministic behavior in tests
-NUM_PRETOKENIZING_PROCESSES = 1
+NUM_PRETOKENIZING_PROCESSES = 5
 
 # module-level globals for workers
 _worker_pat: re.Pattern | None = None
@@ -49,9 +49,9 @@ def _process_chunk_worker(start: int, end: int, filepath: str) -> Dict[str, int]
             sub_chunks = [chunk_data]
 
         for sub in sub_chunks:
-            for m in _worker_pat.finditer(sub):
-                tok = m.group()
-                local_counts[tok] = local_counts.get(tok, 0) + 1
+            for tokens in _worker_pat.finditer(sub):
+                token = tokens.group()
+                local_counts[token] = local_counts.get(token, 0) + 1
 
     return local_counts
  
@@ -130,17 +130,13 @@ class PreTokenizer:
             # Run through every consecutive boundaries
             # Start pre-tokenization process for each
 
-            chunks = [(boundaries[i], boundaries[i+1], file_path) for i in range(len(boundaries)-1)]
+            chunks = [(boundaries[i], boundaries[i+1], file_path) for i in range(len(boundaries) - 1)]
             
-            if NUM_PRETOKENIZING_PROCESSES <= 1:
-                _init_worker(self.PAT, self.special_tokens)
-                results = [_process_chunk_worker(start, end, file_path) for start, end, file_path in chunks]
-            else:
-                with Pool(processes=NUM_PRETOKENIZING_PROCESSES,
-                          initializer=_init_worker,
-                          initargs=(self.PAT, self.special_tokens)) as pool:
-                    # use starmap so each arg is a separate parameter
-                    results = pool.starmap(_process_chunk_worker, chunks)
+            with Pool(processes=NUM_PRETOKENIZING_PROCESSES,
+                        initializer=_init_worker,
+                        initargs=(self.PAT, self.special_tokens)) as pool:
+                # use starmap so each arg is a separate parameter
+                results = pool.starmap(_process_chunk_worker, chunks)
 
             for chunk_result in results:
                 for token, count in chunk_result.items():
@@ -153,24 +149,12 @@ class PreTokenizer:
         """
         Convert the global pretokenization dict from str to tuple[bytes]
         """
-        # Represent tokens as tuples of bytes. Single-byte tokens (regular
-        # characters or punctuation) are stored as a sequence of single-byte
-        # bytes objects (e.g., b'a', b'b', ...). Special tokens are stored as a
-        # single-element tuple containing the entire special token bytestring
-        # (e.g., (b"<|endoftext|>",)). This matches what BPEProcessor expects.
-
         for token, count in self.global_pretokenization_dict.items():
-            if token in self.special_tokens:
-                # special token -> one element: the full bytes of the token
-                token_tuple = (token.encode("utf-8"),)
-            else:
-                token_bytes = token.encode("utf-8")
-                # split into single-byte bytes objects
-                token_tuple = tuple(bytes([b]) for b in token_bytes)
+            token_bytes = token.encode("utf-8")
+            token_tuple = tuple(bytes([b]) for b in token_bytes)
 
             # Store in new dictionary (accumulate counts)
             self.pretokenization_dict_to_bytes[token_tuple] = (
                 self.pretokenization_dict_to_bytes.get(token_tuple, 0) + count
             )
-
 

@@ -3,9 +3,7 @@ from .pretokenizer import PreTokenizer
 
 
 class BPEProcessor:
-    """Incremental BPE processor that tracks pair frequencies.
-
-    Represents the corpus as a list of token sequences (lists of int ids).
+    """
     Maintains a vocabulary dict id->bytes and a Counter of pair frequencies. Merges
     are applied greedily and pair frequencies are rebuilt after each merge.
     """
@@ -27,22 +25,15 @@ class BPEProcessor:
         self.sequence_counts: list[int] = []
 
         # Build a reverse mapping from byte-values to initial token ids (0-255) and special bytes
-        self.byte_to_id: dict[bytes, int] = {bytes([i]): i for i in range(256)}
+        byte_to_id: dict[bytes, int] = {bytes([i]): i for i in range(256)}
         for i, t in enumerate(pretokenizer.special_tokens):
-            self.byte_to_id[t.encode("utf-8")] = 256 + i
+            byte_to_id[t.encode("utf-8")] = 256 + i
 
         for token_tuple, count in pretokenizer.pretokenization_dict_to_bytes.items():
             seq = []
             for elem in token_tuple:
-                # elem is bytes (either single-byte b'a' or multi-byte special token)
-                if elem in self.byte_to_id:
-                    seq.append(self.byte_to_id[elem])
-                else:
-                    # If it's a multi-byte bytes not in map, add it as a new special token
-                    self.vocab_index += 1
-                    self.vocab[self.vocab_index] = elem
-                    self.byte_to_id[elem] = self.vocab_index
-                    seq.append(self.vocab_index)
+                seq.append(byte_to_id[elem])
+
             self.sequences.append(seq)
             self.sequence_counts.append(count)
         # pair -> frequency (sum of counts across sequences)
@@ -52,17 +43,18 @@ class BPEProcessor:
         self.merges: list[tuple[bytes, bytes]] = []
 
         # initialize pair frequencies
-        for si, seq in enumerate(self.sequences):
-            cnt = self.sequence_counts[si]
-            for i in range(len(seq) - 1):
-                pair = (seq[i], seq[i + 1])
-                self.pair_freq[pair] += cnt
+        for index, sequence in enumerate(self.sequences):
+            count = self.sequence_counts[index]
+            for i in range(len(sequence) - 1):
+                pair = (sequence[i], sequence[i + 1])
+                self.pair_freq[pair] += count
 
     def _pair_key(self, pair: tuple[int, int]) -> tuple:
-        """Return a deterministic lexicographic key for tiebreaking pairs.
+        """
+        Return a deterministic lexicographic key for tiebreaking pairs.
 
-        We convert each token id to its bytes value and use the tuple of ints representing
-        those bytes for lexicographic comparison, matching the assignment spec.
+        Convert each token id to its bytes value and take max of the tuple of ints 
+        representing those bytes.
         """
         left_bytes = self.vocab[pair[0]]
         right_bytes = self.vocab[pair[1]]
@@ -90,25 +82,21 @@ class BPEProcessor:
             # record merge as byte-pair
             self.merges.append((left_bytes, right_bytes))
 
-            # Apply merges to all sequences. For correctness and to avoid
-            # subtle bugs updating positions in-place, we process each
-            # sequence independently (right-to-left) and then rebuild the
+            # Apply merges to all sequences (right-to-left) and then rebuild the
             # global pair frequency and position tables from scratch.
-            for si, seq in enumerate(self.sequences):
+            for sequence in self.sequences:
                 # collect all positions where the best pair occurs in this seq
-                positions = [i for i in range(len(seq) - 1) if seq[i] == left_id and seq[i + 1] == right_id]
+                positions = [i for i in range(len(sequence) - 1) if sequence[i] == left_id and sequence[i + 1] == right_id]
                 # process right-to-left so deletions don't affect earlier indices
                 for pos in reversed(positions):
                     # replace at pos
-                    seq[pos] = new_id
-                    del seq[pos + 1]
+                    sequence[pos] = new_id
+                    del sequence[pos + 1]
 
             # After modifying sequences, rebuild pair_freq
             self.pair_freq = Counter()
-            for si, seq in enumerate(self.sequences):
-                cnt = self.sequence_counts[si]
-                for i in range(len(seq) - 1):
-                    pair = (seq[i], seq[i + 1])
-                    self.pair_freq[pair] += cnt
-
-
+            for index, sequence in enumerate(self.sequences):
+                count = self.sequence_counts[index]
+                for i in range(len(sequence) - 1):
+                    pair = (sequence[i], sequence[i + 1])
+                    self.pair_freq[pair] += count
