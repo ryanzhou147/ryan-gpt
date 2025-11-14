@@ -24,7 +24,7 @@ def train_bpe(input_path: str | Path, vocab_size: int, special_tokens: List[str]
     # Step 1: pretokenize using provided PreTokenizer
     pretokenizer = PreTokenizer(special_tokens)
     # pretokenize_file_parallel returns the bytes->count mapping
-    token_dict = pretokenizer.pretokenize_file_parallel(str(input_path))
+    pretokenizer.pretokenize_file_parallel(str(input_path))
 
     # Step 2: initialize BPE processor with the pretokenizer results
     bpe = BPEProcessor(pretokenizer)
