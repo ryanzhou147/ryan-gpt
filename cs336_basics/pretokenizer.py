@@ -39,9 +39,19 @@ def _process_chunk_worker(start: int, end: int, filepath: str) -> Dict[str, int]
         chunk_bytes = chunk_bytes.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
         chunk_data = chunk_bytes.decode("utf-8", errors="ignore")
 
-        for m in _worker_pat.finditer(chunk_data):
-            tok = m.group()
-            local_counts[tok] = local_counts.get(tok, 0) + 1
+        # Remove special tokens by splitting on them, then run the PAT on each
+        # resulting sub-chunk.
+        escaped = [re.escape(t) for t in _worker_special_tokens]
+        split_regex = "|".join(escaped) if escaped else None
+        if split_regex:
+            sub_chunks = re.split(split_regex, chunk_data)
+        else:
+            sub_chunks = [chunk_data]
+
+        for sub in sub_chunks:
+            for m in _worker_pat.finditer(sub):
+                tok = m.group()
+                local_counts[tok] = local_counts.get(tok, 0) + 1
 
     return local_counts
  
@@ -54,10 +64,10 @@ class PreTokenizer:
         self.pretokenization_dict_to_bytes: Dict[tuple[bytes], int] = {} # Global frequency table in bytes
         
     def _initialize_PAT(self) -> None:
-        special_patterns = [re.escape(c) for c in self.special_tokens]
-        special_group = "|".join(special_patterns)
-        # Use the canonical GPT-2 pretokenization pattern from the assignment
-        PAT = rf"{special_group}|'(?:[sdmt]|ll|ve|re)| ?\p{{L}}+| ?\p{{N}}+| ?[^\s\p{{L}}\p{{N}}]+|\s+(?!\S)|\s+"
+        # Use the canonical GPT-2 pretokenization pattern from the assignment.
+        # Special tokens are handled separately (removed prior to tokenization),
+        # so they are not included in this pattern.
+        PAT = r"'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"
         self.PAT = re.compile(PAT)
         
     def _find_EOF_boundaries(self, file: BinaryIO, desired_num_chunks: int, 
@@ -97,8 +107,9 @@ class PreTokenizer:
                 # Find the special token in the mini chunk
                 found_at = mini_chunk.find(split_special_token)
                 if found_at != -1:
-                    # place boundary AFTER the special token so it is not split across chunks
-                    chunk_boundaries[bi] = initial_position + found_at + len(split_special_token)
+                    # place boundary at the start of the special token to match the
+                    # reference implementation's behavior for chunking
+                    chunk_boundaries[bi] = initial_position + found_at
                     break
                 initial_position += mini_chunk_size
 
