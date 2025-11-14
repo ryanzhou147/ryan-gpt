@@ -76,8 +76,8 @@ def train_bpe_tinystories():
     
 def train_bpe_expts_owt():
     # Train on OpenWebText with a vocabulary size of 32,000 and serialize outputs.
-    input_path = Path("data/owt_valid.txt")
-    vocab_size = 300
+    input_path = Path("data/owt_train.txt")
+    vocab_size = 32000
     special_tokens = ['<|endoftext|>']
 
     start_time = time()
