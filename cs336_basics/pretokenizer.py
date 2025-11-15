@@ -29,32 +29,63 @@ def _init_worker(pat_str: str, special_tokens: list[str]):
 def _process_chunk_worker(start: int, end: int, filepath: str) -> Dict[str, int]:
     """Module-level worker: read bytes, remove special tokens, decode and tokenize."""
     assert _worker_pat is not None and _worker_special_tokens is not None, "Worker not initialized"
+
     local_counts: Dict[str, int] = {}
 
+    READ_BLOCK = 1024 * 1024  # 1 MiB
+    carry = "" # holds boundary text
+
+    # Pre-compile special token split regex
+    escaped = [re.escape(t) for t in _worker_special_tokens]
+    split_regex = re.compile("|".join(escaped))
+    
     with open(filepath, "rb") as f:
         f.seek(start)
-        chunk_bytes = f.read(end - start)
+        bytes_to_read = end - start
 
-        # normalize line endings in bytes, then decode
-        chunk_bytes = chunk_bytes.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
-        chunk_data = chunk_bytes.decode("utf-8", errors="ignore")
+        while bytes_to_read > 0:
+            chunk_size = min(READ_BLOCK, bytes_to_read)
+            part = f.read(chunk_size)
+            if not part:
+                break
+            bytes_to_read -= len(part)
 
-        # Remove special tokens by splitting on them, then run the PAT on each
-        # resulting sub-chunk.
-        escaped = [re.escape(t) for t in _worker_special_tokens]
-        split_regex = "|".join(escaped) if escaped else None
+            # Decode chunk safely
+            text = part.decode("utf-8", errors="ignore")
+
+            # Add carry from previous chunk
+            text = carry + text
+
+            # Save last 10 chars as carry to catch boundary patterns
+            # E.g. if <|endoftext|> is split across chunks
+            carry = text[-10:]
+            text_to_process = text[:-10]
+
+            # Now process text_to_process
+            if split_regex:
+                sub_chunks = split_regex.split(text_to_process)
+            else:
+                sub_chunks = [text_to_process]
+
+            for sub in sub_chunks:
+                for match in _worker_pat.finditer(sub):
+                    token = match.group()
+                    local_counts[token] = local_counts.get(token, 0) + 1
+
+    # Final process carry
+    if carry:
         if split_regex:
-            sub_chunks = re.split(split_regex, chunk_data)
+            sub_chunks = split_regex.split(carry)
         else:
-            sub_chunks = [chunk_data]
+            sub_chunks = [carry]
 
         for sub in sub_chunks:
-            for tokens in _worker_pat.finditer(sub):
-                token = tokens.group()
+            for match in _worker_pat.finditer(sub):
+                token = match.group()
                 local_counts[token] = local_counts.get(token, 0) + 1
 
     return local_counts
- 
+
 class PreTokenizer:
     def __init__(self, special_tokens: list[str]) -> None:
         self.special_tokens: list[str] = special_tokens
