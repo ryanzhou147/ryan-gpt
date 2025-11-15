@@ -1,4 +1,6 @@
 from collections import Counter, defaultdict
+import regex as re
+from typing import Dict, List, Tuple
 from cs336_basics.pretokenizer import PreTokenizer
 
 
@@ -11,6 +13,7 @@ class BPEProcessor:
     def __init__(self, pretokenizer: PreTokenizer) -> None:
         # Initialize vocab: 0-255 are single-byte tokens
         self.vocab: dict[int, bytes] = {i: bytes([i]) for i in range(256)}
+        self.pretokenizer = pretokenizer
 
         # Add special tokens to vocab (ids 256, 257, ...)
         for i, t in enumerate(pretokenizer.special_tokens):
@@ -20,7 +23,6 @@ class BPEProcessor:
 
         # Convert pretokenizer output (tuple-of-bytes -> count) into sequences of token ids
         # and maintain multiplicity via counts
-        # pretokenizer.pretokenization_dict_to_bytes: Dict[tuple[bytes], int]
         self.sequences: list[list[int]] = []
         self.sequence_counts: list[int] = []
 
@@ -29,13 +31,13 @@ class BPEProcessor:
         for i, t in enumerate(pretokenizer.special_tokens):
             byte_to_id[t.encode("utf-8")] = 256 + i
 
-        for token_tuple, cnt in pretokenizer.pretokenization_dict_to_bytes.items():
+        for token_tuple, count in pretokenizer.pretokenization_dict_to_bytes.items():
             seq = []
             for elem in token_tuple:
                 seq.append(byte_to_id[elem])
-
+            
             self.sequences.append(seq)
-            self.sequence_counts.append(cnt)
+            self.sequence_counts.append(count)
 
         # pair -> frequency (sum of counts across sequences)
         self.pair_freq: Counter[tuple[int, int]] = Counter()
@@ -103,3 +105,50 @@ class BPEProcessor:
                 for i in range(len(sequence) - 1):
                     pair = (sequence[i], sequence[i + 1])
                     self.pair_freq[pair] += count
+
+    def encode(self, input: str, vocab: Dict[int, bytes], merges: List[Tuple[bytes, bytes]]) -> list[int]:
+        """Encode a string into a sequence of BPE token IDs."""
+
+        # 1. Take input string and apply PAT to get initial tokens as bytes
+        matches = re.finditer(self.pretokenizer.PAT, input)
+        
+        # 2. Convert list of strings into byte arrays
+        encode_bytearray: List[Tuple[bytes]] = []
+        for token in matches:
+            token_bytes = token.group().encode("utf-8")
+            token_tuple = tuple(bytes([b]) for b in token_bytes)
+
+            # Store in new dictionary
+            encode_bytearray.append(token_tuple)
+            
+        print(encode_bytearray)
+        
+        # 3. Check each byte pair against vocab merges in order of merges
+        for index, token_tuple in enumerate(encode_bytearray):
+            token_tuple = list(token_tuple)  # easier to mutate
+            i = 0
+            # 4. Apply merges until no more merges can be applied
+            while i < len(token_tuple) - 1:
+                left, right = token_tuple[i], token_tuple[i + 1]
+                if (left, right) in merges:
+                    # Merge
+                    merged = left + right
+                    token_tuple[i] = merged
+                    del token_tuple[i + 1]
+                    
+                    # Step back one index to check for a new merge with the previous token
+                    if i > 0:
+                        i -= 1
+                else:
+                    i += 1
+            encode_bytearray[index] = tuple(token_tuple)
+        print("Final token tuple:", encode_bytearray)
+
+        #5. Replace all with vocab ids
+        encoded_ids: List[int] = []
+        reversed_dict = {value: key for key, value in vocab.items()}
+        for token_tuple in encode_bytearray:
+            for merged_bytes in token_tuple:
+                encoded_ids.append(reversed_dict[merged_bytes])
+        
+        return encoded_ids

@@ -43,9 +43,7 @@ def _process_chunk_worker(start: int, end: int, filepath: str) -> Dict[str, int]
         READ_BLOCK = 1024 * 1024
         TAIL_CHARS = 4096
 
-        # Accumulate bytes and decode as much as possible. If an incomplete
-        # multibyte sequence occurs at the end, UnicodeDecodeError gives us
-        # the split point; keep trailing bytes for the next iteration.
+        # Accumulate bytes and decode
         carry_bytes = b""
 
         escaped = [re.escape(t) for t in _worker_special_tokens]
@@ -207,5 +205,5 @@ class PreTokenizer:
             # Store in new dictionary (accumulate counts)
             self.pretokenization_dict_to_bytes[token_tuple] = (
                 self.pretokenization_dict_to_bytes.get(token_tuple, 0) + count
-            )
+            )        
 

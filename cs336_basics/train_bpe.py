@@ -38,6 +38,7 @@ def train_bpe(input_path: str | Path, vocab_size: int, special_tokens: List[str]
     num_merges = vocab_size - initial_vocab
     bpe.run_bpe(num_merges)
 
+    print(bpe.encode("low low low low low\nlower lower widest widest widest\nnewest newest newest newest newest newest", bpe.vocab, bpe.merges))
     return bpe.vocab, bpe.merges
 
 def train_bpe_tinystories():
@@ -147,8 +148,7 @@ def train_bpe_expts_owt():
 
 def train_test():
     vocab, merges = train_bpe("cs336_basics/test.txt", vocab_size=256+20, special_tokens=['<|endoftext|>'])
-    print(vocab, merges)
+    print(dict(list(vocab.items())[-20:]), merges)
 
 if __name__ == "__main__":
-    train_bpe_expts_owt()
-    
+    train_test()
