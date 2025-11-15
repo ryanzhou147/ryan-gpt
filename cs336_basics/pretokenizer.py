@@ -9,7 +9,7 @@ from typing import BinaryIO, Dict
 
 # Default number of worker processes used when splitting files
 # Use single-process by default to ensure deterministic behavior in tests
-NUM_PRETOKENIZING_PROCESSES = 4
+NUM_PRETOKENIZING_PROCESSES = 5
 
 # module-level globals for workers
 _worker_pat: re.Pattern | None = None
@@ -27,34 +27,85 @@ def _init_worker(pat_str: str, special_tokens: list[str]):
 
 
 def _process_chunk_worker(start: int, end: int, filepath: str) -> Dict[str, int]:
-    """Module-level worker: read bytes, remove special tokens, decode and tokenize."""
+    """Module-level worker: read bytes, remove special tokens, decode and tokenize.
+
+    Streams requested byte range in <=1MiB blocks,
+    decodes incrementally to preserve multibyte characters, 
+    keeps small carry buffer to handle tokens that span block boundaries.
+    """
+
     assert _worker_pat is not None and _worker_special_tokens is not None, "Worker not initialized"
     local_counts: Dict[str, int] = {}
 
     with open(filepath, "rb") as f:
         f.seek(start)
-        chunk_bytes = f.read(end - start)
+        bytes_to_read = end - start
+        READ_BLOCK = 1024 * 1024
+        TAIL_CHARS = 4096
 
-        # normalize line endings in bytes, then decode
-        chunk_bytes = chunk_bytes.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
-        chunk_data = chunk_bytes.decode("utf-8", errors="ignore")
+        # Accumulate bytes and decode as much as possible. If an incomplete
+        # multibyte sequence occurs at the end, UnicodeDecodeError gives us
+        # the split point; keep trailing bytes for the next iteration.
+        carry_bytes = b""
 
-        # Remove special tokens by splitting on them, then run the PAT on each
-        # resulting sub-chunk.
         escaped = [re.escape(t) for t in _worker_special_tokens]
-        split_regex = "|".join(escaped) if escaped else None
-        if split_regex:
-            sub_chunks = re.split(split_regex, chunk_data)
-        else:
-            sub_chunks = [chunk_data]
+        split_regex = re.compile("|".join(escaped)) if escaped else None
 
-        for sub in sub_chunks:
-            for m in _worker_pat.finditer(sub):
+        while bytes_to_read > 0:
+            this_read = READ_BLOCK if bytes_to_read > READ_BLOCK else bytes_to_read
+            part = f.read(this_read)
+            if not part:
+                break
+            bytes_to_read -= len(part)
+
+            carry_bytes += part
+
+            try:
+                decoded = carry_bytes.decode("utf-8")
+                carry_bytes = b""
+            except UnicodeDecodeError as e:
+                decoded = carry_bytes[: e.start].decode("utf-8", errors="ignore")
+                tail_bytes = carry_bytes[e.start:]
+                carry_bytes = tail_bytes
+
+            if split_regex:
+                pieces = split_regex.split(decoded)
+                for sub in pieces[:-1]:
+                    for m in _worker_pat.finditer(sub):
+                        tok = m.group()
+                        local_counts[tok] = local_counts.get(tok, 0) + 1
+                last_fragment = pieces[-1]
+                carry_bytes = last_fragment.encode("utf-8") + carry_bytes
+            else:
+                if len(decoded) > TAIL_CHARS:
+                    safe_portion = decoded[:-TAIL_CHARS]
+                    last_end = 0
+                    for m in _worker_pat.finditer(safe_portion):
+                        tok = m.group()
+                        local_counts[tok] = local_counts.get(tok, 0) + 1
+                        last_end = m.end()
+                    remaining_fragment = decoded[last_end:]
+                    carry_bytes = remaining_fragment.encode("utf-8") + carry_bytes
+
+        # flush remaining bytes
+        if carry_bytes:
+            final_decoded = carry_bytes.decode("utf-8", errors="ignore")
+        else:
+            final_decoded = ""
+
+        if split_regex:
+            pieces = split_regex.split(final_decoded)
+            for sub in pieces:
+                for m in _worker_pat.finditer(sub):
+                    tok = m.group()
+                    local_counts[tok] = local_counts.get(tok, 0) + 1
+        else:
+            for m in _worker_pat.finditer(final_decoded):
                 tok = m.group()
                 local_counts[tok] = local_counts.get(tok, 0) + 1
 
     return local_counts
- 
+
 class PreTokenizer:
     def __init__(self, special_tokens: list[str]) -> None:
         self.special_tokens: list[str] = special_tokens
@@ -130,17 +181,13 @@ class PreTokenizer:
             # Run through every consecutive boundaries
             # Start pre-tokenization process for each
 
-            chunks = [(boundaries[i], boundaries[i+1], file_path) for i in range(len(boundaries)-1)]
+            chunks = [(boundaries[i], boundaries[i+1], file_path) for i in range(len(boundaries) - 1)]
             
-            if NUM_PRETOKENIZING_PROCESSES <= 1:
-                _init_worker(self.PAT, self.special_tokens)
-                results = [_process_chunk_worker(start, end, file_path) for start, end, file_path in chunks]
-            else:
-                with Pool(processes=NUM_PRETOKENIZING_PROCESSES,
-                          initializer=_init_worker,
-                          initargs=(self.PAT, self.special_tokens)) as pool:
-                    # use starmap so each arg is a separate parameter
-                    results = pool.starmap(_process_chunk_worker, chunks)
+            with Pool(processes=NUM_PRETOKENIZING_PROCESSES,
+                        initializer=_init_worker,
+                        initargs=(self.PAT, self.special_tokens)) as pool:
+                # use starmap so each arg is a separate parameter
+                results = pool.starmap(_process_chunk_worker, chunks)
 
             for chunk_result in results:
                 for token, count in chunk_result.items():
@@ -153,24 +200,12 @@ class PreTokenizer:
         """
         Convert the global pretokenization dict from str to tuple[bytes]
         """
-        # Represent tokens as tuples of bytes. Single-byte tokens (regular
-        # characters or punctuation) are stored as a sequence of single-byte
-        # bytes objects (e.g., b'a', b'b', ...). Special tokens are stored as a
-        # single-element tuple containing the entire special token bytestring
-        # (e.g., (b"<|endoftext|>",)). This matches what BPEProcessor expects.
-
         for token, count in self.global_pretokenization_dict.items():
-            if token in self.special_tokens:
-                # special token -> one element: the full bytes of the token
-                token_tuple = (token.encode("utf-8"),)
-            else:
-                token_bytes = token.encode("utf-8")
-                # split into single-byte bytes objects
-                token_tuple = tuple(bytes([b]) for b in token_bytes)
+            token_bytes = token.encode("utf-8")
+            token_tuple = tuple(bytes([b]) for b in token_bytes)
 
             # Store in new dictionary (accumulate counts)
             self.pretokenization_dict_to_bytes[token_tuple] = (
                 self.pretokenization_dict_to_bytes.get(token_tuple, 0) + count
             )
-
 
