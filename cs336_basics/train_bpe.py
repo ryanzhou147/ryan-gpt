@@ -152,5 +152,5 @@ def train_test():
     print(vocab, merges)
 
 if __name__ == "__main__":
-    train_test()
+    train_bpe_expts_owt()
     

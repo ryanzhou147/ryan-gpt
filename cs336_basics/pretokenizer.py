@@ -27,62 +27,82 @@ def _init_worker(pat_str: str, special_tokens: list[str]):
 
 
 def _process_chunk_worker(start: int, end: int, filepath: str) -> Dict[str, int]:
-    """Module-level worker: read bytes, remove special tokens, decode and tokenize."""
-    assert _worker_pat is not None and _worker_special_tokens is not None, "Worker not initialized"
+    """Module-level worker: read bytes, remove special tokens, decode and tokenize.
 
+    Streams requested byte range in <=1MiB blocks,
+    decodes incrementally to preserve multibyte characters, 
+    keeps small carry buffer to handle tokens that span block boundaries.
+    """
+
+    assert _worker_pat is not None and _worker_special_tokens is not None, "Worker not initialized"
     local_counts: Dict[str, int] = {}
 
-    READ_BLOCK = 1024 * 1024  # 1 MiB
-    carry = "" # holds boundary text
-
-    # Pre-compile special token split regex
-    escaped = [re.escape(t) for t in _worker_special_tokens]
-    split_regex = re.compile("|".join(escaped))
-    
     with open(filepath, "rb") as f:
         f.seek(start)
         bytes_to_read = end - start
+        READ_BLOCK = 1024 * 1024
+        TAIL_CHARS = 4096
+
+        # Accumulate bytes and decode as much as possible. If an incomplete
+        # multibyte sequence occurs at the end, UnicodeDecodeError gives us
+        # the split point; keep trailing bytes for the next iteration.
+        carry_bytes = b""
+
+        escaped = [re.escape(t) for t in _worker_special_tokens]
+        split_regex = re.compile("|".join(escaped)) if escaped else None
 
         while bytes_to_read > 0:
-            chunk_size = min(READ_BLOCK, bytes_to_read)
-            part = f.read(chunk_size)
+            this_read = READ_BLOCK if bytes_to_read > READ_BLOCK else bytes_to_read
+            part = f.read(this_read)
             if not part:
                 break
             bytes_to_read -= len(part)
 
-            # Decode chunk safely
-            text = part.decode("utf-8", errors="ignore")
+            carry_bytes += part
 
-            # Add carry from previous chunk
-            text = carry + text
+            try:
+                decoded = carry_bytes.decode("utf-8")
+                carry_bytes = b""
+            except UnicodeDecodeError as e:
+                decoded = carry_bytes[: e.start].decode("utf-8", errors="ignore")
+                tail_bytes = carry_bytes[e.start:]
+                carry_bytes = tail_bytes
 
-            # Save last 10 chars as carry to catch boundary patterns
-            # E.g. if <|endoftext|> is split across chunks
-            carry = text[-10:]
-            text_to_process = text[:-10]
-
-            # Now process text_to_process
             if split_regex:
-                sub_chunks = split_regex.split(text_to_process)
+                pieces = split_regex.split(decoded)
+                for sub in pieces[:-1]:
+                    for m in _worker_pat.finditer(sub):
+                        tok = m.group()
+                        local_counts[tok] = local_counts.get(tok, 0) + 1
+                last_fragment = pieces[-1]
+                carry_bytes = last_fragment.encode("utf-8") + carry_bytes
             else:
-                sub_chunks = [text_to_process]
+                if len(decoded) > TAIL_CHARS:
+                    safe_portion = decoded[:-TAIL_CHARS]
+                    last_end = 0
+                    for m in _worker_pat.finditer(safe_portion):
+                        tok = m.group()
+                        local_counts[tok] = local_counts.get(tok, 0) + 1
+                        last_end = m.end()
+                    remaining_fragment = decoded[last_end:]
+                    carry_bytes = remaining_fragment.encode("utf-8") + carry_bytes
 
-            for sub in sub_chunks:
-                for match in _worker_pat.finditer(sub):
-                    token = match.group()
-                    local_counts[token] = local_counts.get(token, 0) + 1
-
-    # Final process carry
-    if carry:
-        if split_regex:
-            sub_chunks = split_regex.split(carry)
+        # flush remaining bytes
+        if carry_bytes:
+            final_decoded = carry_bytes.decode("utf-8", errors="ignore")
         else:
-            sub_chunks = [carry]
+            final_decoded = ""
 
-        for sub in sub_chunks:
-            for match in _worker_pat.finditer(sub):
-                token = match.group()
-                local_counts[token] = local_counts.get(token, 0) + 1
+        if split_regex:
+            pieces = split_regex.split(final_decoded)
+            for sub in pieces:
+                for m in _worker_pat.finditer(sub):
+                    tok = m.group()
+                    local_counts[tok] = local_counts.get(tok, 0) + 1
+        else:
+            for m in _worker_pat.finditer(final_decoded):
+                tok = m.group()
+                local_counts[tok] = local_counts.get(tok, 0) + 1
 
     return local_counts
 
