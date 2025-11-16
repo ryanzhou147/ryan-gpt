@@ -1,4 +1,5 @@
 from collections import Counter, defaultdict
+from pathlib import Path
 import regex as re
 from typing import Dict, List, Tuple
 from cs336_basics.pretokenizer import PreTokenizer
@@ -106,18 +107,28 @@ class BPEProcessor:
                     pair = (sequence[i], sequence[i + 1])
                     self.pair_freq[pair] += count
 
-    def encode(self, input: str, vocab: Dict[int, bytes], merges: List[Tuple[bytes, bytes]]) -> list[int]:
+    def encode(self, input: str | Path, vocab: Dict[int, bytes], merges: List[Tuple[bytes, bytes]]) -> list[int]:
         """Encode a string into a sequence of BPE token IDs."""
 
-        # 1. Take input string and apply PAT to get initial tokens as bytes
-        matches = re.finditer(self.pretokenizer.PAT, input)
+        # 1. Take input string and apply PAT to get initial tokens as bytes with special tokens
+
+        # Escape special tokens so they match literally
+        escaped_specials = [re.escape(token) for token in self.pretokenizer.special_tokens]
+        # Combine PAT and special tokens with alternation
+        full_pattern = "|".join(escaped_specials + [self.pretokenizer.PAT.pattern])
+        # Build the final regex
+        combined = re.compile(full_pattern)
+
+        matches = re.finditer(combined, input)
         
         # 2. Convert list of strings into byte arrays
         encode_bytearray: List[Tuple[bytes]] = []
         for token in matches:
             token_bytes = token.group().encode("utf-8")
-            token_tuple = tuple(bytes([b]) for b in token_bytes)
-
+            if not token_bytes.decode("utf-8") in self.pretokenizer.special_tokens:
+                token_tuple = tuple(bytes([b]) for b in token_bytes)
+            else:
+                token_tuple = (token_bytes,)
             # Store in new dictionary
             encode_bytearray.append(token_tuple)
             
@@ -152,3 +163,4 @@ class BPEProcessor:
                 encoded_ids.append(reversed_dict[merged_bytes])
         
         return encoded_ids
+    

@@ -25,7 +25,6 @@ def _init_worker(pat_str: str, special_tokens: list[str]):
     _worker_special_tokens = special_tokens
     _worker_initialized = True
 
-
 def _process_chunk_worker(start: int, end: int, filepath: str) -> Dict[str, int]:
     """Module-level worker: read bytes, remove special tokens, decode and tokenize.
 
@@ -70,8 +69,8 @@ def _process_chunk_worker(start: int, end: int, filepath: str) -> Dict[str, int]
                 pieces = split_regex.split(decoded)
                 for sub in pieces[:-1]:
                     for m in _worker_pat.finditer(sub):
-                        tok = m.group()
-                        local_counts[tok] = local_counts.get(tok, 0) + 1
+                        token = m.group()
+                        local_counts[token] = local_counts.get(token, 0) + 1
                 last_fragment = pieces[-1]
                 carry_bytes = last_fragment.encode("utf-8") + carry_bytes
             else:
@@ -79,8 +78,8 @@ def _process_chunk_worker(start: int, end: int, filepath: str) -> Dict[str, int]
                     safe_portion = decoded[:-TAIL_CHARS]
                     last_end = 0
                     for m in _worker_pat.finditer(safe_portion):
-                        tok = m.group()
-                        local_counts[tok] = local_counts.get(tok, 0) + 1
+                        token = m.group()
+                        local_counts[token] = local_counts.get(token, 0) + 1
                         last_end = m.end()
                     remaining_fragment = decoded[last_end:]
                     carry_bytes = remaining_fragment.encode("utf-8") + carry_bytes
