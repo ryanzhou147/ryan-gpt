@@ -38,9 +38,10 @@ def train_bpe(input_path: str | Path, vocab_size: int, special_tokens: List[str]
     num_merges = vocab_size - initial_vocab
     bpe.run_bpe(num_merges)
 
-    with open("cs336_basics/test.txt", "r", encoding="utf-8") as f:
-        test_string = f.read()
-    print(bpe.encode(test_string, bpe.vocab, bpe.merges))
+    # Encode test.txt file using the trained tokenizer
+    encoded_ids = bpe.encode("cs336_basics/test.txt", bpe.vocab, bpe.merges)
+    print(encoded_ids)
+    print(bpe.vocab, bpe.merges)
     return bpe.vocab, bpe.merges
 
 def train_bpe_tinystories():
@@ -78,7 +79,7 @@ def train_bpe_expts_owt():
     # Train on OpenWebText with a vocabulary size of 32,000 and serialize outputs.
 
     input_path = Path("data/owt_train.txt")
-    vocab_size = 320
+    vocab_size = 260
     special_tokens = ['<|endoftext|>']
 
     start_time = time()
