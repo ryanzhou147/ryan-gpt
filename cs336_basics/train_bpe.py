@@ -26,8 +26,8 @@ def train_bpe(input_path: str | Path, vocab_size: int, special_tokens: List[str]
     # pretokenize the file in parallel
     pretokenizer.pretokenize_file_parallel(str(input_path))
 
-    # Step 2: initialize BPE processor with the pretokenizer results
-    bpe = BPEProcessor(pretokenizer)
+    # Step 2: initialize BPE processor with pretokenizer for training
+    bpe = BPEProcessor({}, [], special_tokens, pretokenizer=pretokenizer)
 
     # initial vocab size includes 256 byte tokens and special tokens
     initial_vocab = 256 + len(special_tokens)
@@ -39,9 +39,9 @@ def train_bpe(input_path: str | Path, vocab_size: int, special_tokens: List[str]
     bpe.run_bpe(num_merges)
 
     # Encode test.txt file using the trained tokenizer
-    encoded_ids = bpe.encode("cs336_basics/test.txt", bpe.vocab, bpe.merges)
-    print(encoded_ids)
-    print(bpe.vocab, bpe.merges)
+    decoded_ids = bpe.decode(bpe.encode("low low low low hi this is ryan zhou"))
+    print("This is what it is after encoding then decoding", decoded_ids)
+    print(bpe.vocab)
     return bpe.vocab, bpe.merges
 
 def train_bpe_tinystories():
@@ -150,7 +150,7 @@ def train_bpe_expts_owt():
     return a_summary, b_summary
 
 def train_test():
-    vocab, merges = train_bpe("cs336_basics/test.txt", vocab_size=256+20, special_tokens=['<|endoftext|>'])
+    vocab, merges = train_bpe("cs336_basics/test.txt", vocab_size=256+40, special_tokens=['<|endoftext|>'])
     print(list(vocab.items())[-20:])
 
 if __name__ == "__main__":
