@@ -22,6 +22,21 @@ class BPEProcessor:
         self.special_tokens = special_tokens or []
         self._special_token_bytes = {t.encode("utf-8") for t in self.special_tokens}
         self._reverse_vocab = {v: k for k, v in self.vocab.items()}  # Build reverse vocab immediately
+        
+        # Generate merges for special tokens (to reconstruct them byte-by-byte from individual bytes)
+        special_token_merges = []
+        for special_token_str in self.special_tokens:
+            special_token_bytes = special_token_str.encode("utf-8")
+            # Create merges to reconstruct this special token byte by byte
+            # E.g., for b'<|e', we need: b'<' + b'|' -> b'<|', then b'<|' + b'e' -> b'<|e', etc.
+            for i in range(1, len(special_token_bytes)):
+                left = special_token_bytes[:i]
+                right = bytes([special_token_bytes[i]])  # Single byte!
+                special_token_merges.append((left, right))
+        
+        # Add special token merges at the BEGINNING with highest priority (lowest rank)
+        self.merges = special_token_merges + self.merges
+        
         # Build merge ranks for efficient priority-based lookup
         self._merge_ranks = {merge: i for i, merge in enumerate(self.merges)}
         self._pat = self._build_pat()
@@ -89,10 +104,20 @@ class BPEProcessor:
         return byte_sequence.decode("utf-8", errors="replace")
 
     def _build_pat(self) -> re.Pattern:
-        """Build regex pattern for tokenization (special tokens + PAT)."""
-        escaped_specials = [re.escape(token) for token in self.special_tokens]
-        # GPT-2 canonical PAT pattern
-        pat_str = r"'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"
+        """Build regex pattern for tokenization (special tokens + PAT).
+        
+        Special tokens must be matched with absolute priority to prevent greedy space matching
+        from consuming spaces before them. We match spaces separately BEFORE punctuation.
+        """
+        # Sort special tokens by length (longest first) to match greedily
+        sorted_specials = sorted(self.special_tokens, key=len, reverse=True)
+        escaped_specials = [re.escape(token) for token in sorted_specials]
+        
+        # GPT-2 canonical PAT pattern, with space pattern BEFORE punctuation
+        # This prevents ` ?[^\s...]+ ` from greedily consuming space before special tokens
+        pat_str = r"'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+|\s+(?!\S)|\s+| ?[^\s\p{L}\p{N}]+"
+        
+        # Build pattern with special tokens first (they have absolute priority)
         full_pattern = "|".join(escaped_specials + [pat_str]) if escaped_specials else pat_str
         return re.compile(full_pattern)
 
