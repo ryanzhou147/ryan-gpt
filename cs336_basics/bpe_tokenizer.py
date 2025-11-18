@@ -176,8 +176,6 @@ class BPEProcessor:
         """Encode raw text string."""
         pattern = self._get_combined_pattern()
         tokens = self._tokenize_text(text, pattern)
-
-        print(tokens)
         
         for i, token_tuple in enumerate(tokens):
             token_list = list(token_tuple)
