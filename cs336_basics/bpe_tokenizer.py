@@ -223,15 +223,21 @@ class BPEProcessor:
         if self.pretokenizer is None:
             return
         
-        # Initialize vocab for training
+        # Initialize vocab for training with byte tokens
         self.vocab = {i: bytes([i]) for i in range(256)}
-        for i, t in enumerate([]):  # No special tokens in training init
-            self.vocab[256 + i] = t.encode("utf-8")
+        
+        # Add special tokens to vocab (they were set in __init__)
+        special_token_ids = {}
+        for token_bytes, token_id in self.special_tokens_to_id.items():
+            self.vocab[256 + len(special_token_ids)] = token_bytes
+            special_token_ids[token_bytes] = 256 + len(special_token_ids)
+        
         self.vocab_index = max(self.vocab.keys())
         
+        # Build byte_to_id mapping for sequence building
         byte_to_id = {bytes([i]): i for i in range(256)}
-        for i, t in enumerate([]):
-            byte_to_id[t.encode("utf-8")] = 256 + i
+        for token_bytes, token_id in special_token_ids.items():
+            byte_to_id[token_bytes] = token_id
 
         for token_tuple, count in self.pretokenizer.pretokenization_dict_to_bytes.items():
             seq = [byte_to_id[elem] for elem in token_tuple]
