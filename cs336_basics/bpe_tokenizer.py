@@ -18,31 +18,54 @@ class BPEProcessor:
         self.vocab = vocab
         self.merges = merges or []
         self.merges_dict = {merge: i for i, merge in enumerate(self.merges)}
-        self.vocab_size = len(self.vocab)
-        
-        # Add special tokens to vocab if not already present
-        special_tokens = special_tokens or []
-        for token in special_tokens:
-            token_bytes = token.encode("utf-8")
-            if token_bytes not in self.vocab.values():
-                self.vocab[len(self.vocab)] = token_bytes
-        
-        # Build bidirectional vocab mapping
-        self.bytes_to_id = {v: k for k, v in self.vocab.items()}
-        
-        # Build special token ID map (sorted by length for greedy matching)
-        self.special_tokens_to_id = {}
-        for token in sorted([token.encode("utf-8") for token in special_tokens], key=len, reverse=True):
-            self.special_tokens_to_id[token] = self.bytes_to_id[token]
-        
         self.pretokenizer = pretokenizer
         self.sequences: list[list[int]] = []
         self.sequence_counts: list[int] = []
         self.pair_freq: Counter[tuple[int, int]] = Counter()
+        
+        # Add special tokens to vocab if not already present
+        special_tokens = special_tokens or []
+        special_token_bytes = []
+        for token in special_tokens:
+            token_bytes = token.encode("utf-8")
+            special_token_bytes.append(token_bytes)
+            if token_bytes not in self.vocab.values():
+                self.vocab[len(self.vocab)] = token_bytes
+        
+        # Build bidirectional vocab mapping
+        self._rebuild_vocab_mapping()
+        
+        # Build special token ID map (sorted by length for greedy matching)
+        self.special_tokens_to_id = {}
+        for token_bytes in sorted(special_token_bytes, key=len, reverse=True):
+            self.special_tokens_to_id[token_bytes] = self.bytes_to_id[token_bytes]
+        
         self.vocab_index: int = max(self.vocab.keys()) if self.vocab else -1
         
         self._build_sequences_for_training()
         self._build_pair_frequencies()
+
+    def _rebuild_vocab_mapping(self) -> None:
+        """Rebuild the bytes_to_id mapping from vocab."""
+        self.bytes_to_id = {v: k for k, v in self.vocab.items()}
+
+    @classmethod
+    def from_files(cls, vocab_path: str, merges_path: str, special_tokens: List[str] | None = None) -> "BPEProcessor":
+        """Load BPEProcessor from vocab and merges files."""
+        with open(vocab_path, "r", encoding="utf-8") as vf:         
+            vocab_data = json.load(vf)
+            vocab = {int(k): bytes.fromhex(v) for k, v in vocab_data.items()}
+
+        with open(merges_path, "r", encoding="utf-8") as mf:
+            merges = []
+            for line in mf:
+                parts = line.strip().split()
+                if len(parts) != 2:
+                    continue
+                left, right = bytes.fromhex(parts[0]), bytes.fromhex(parts[1])
+                merges.append((left, right))
+
+        return cls(vocab, merges, special_tokens)
 
     def encode(self, text: str) -> List[int]:
         """Encode text string into token IDs."""
@@ -72,23 +95,6 @@ class BPEProcessor:
                 raise TypeError(f"Unexpected type {type(elem)} in results.")
         
         return token_ids
-    
-    def from_files(cls, vocab_path: str, merges_path: str, special_tokens: List[str] | None) -> "BPEProcessor":
-        # Load BPEProcessor from vocab and merges files.
-        with open(vocab_path, "r", encoding="utf-8") as vf:         
-            vocab_data = json.load(vf)
-            vocab = {int(k): bytes.fromhex(v) for k, v in vocab_data.items()}
-
-        with open(merges_path, "r", encoding="utf-8") as mf:
-            merges = []
-            for line in mf:
-                parts = line.strip().split()
-                if len(parts) != 2:
-                    continue
-                left, right = bytes.fromhex(parts[0]), bytes.fromhex(parts[1])
-                merges.append((left, right))
-
-        return cls(vocab, merges, special_tokens)       
     
     def _tokenize_special_tokens(self, text: str) -> List[Union[str, int]]:
         """Split text by special tokens, returning a mix of strings and special token IDs."""
@@ -235,11 +241,13 @@ class BPEProcessor:
             return
         
         for sequence in self.sequences:
-            positions = [i for i in range(len(sequence) - 1) 
-                        if sequence[i] == left_id and sequence[i + 1] == right_id]
-            for pos in reversed(positions):
-                sequence[pos] = new_id
-                del sequence[pos + 1]
+            i = 0
+            while i < len(sequence) - 1:
+                if sequence[i] == left_id and sequence[i + 1] == right_id:
+                    sequence[i] = new_id
+                    del sequence[i + 1]
+                else:
+                    i += 1
 
     def _build_pair_frequencies(self) -> None:
         """Build pair frequencies after merge."""
@@ -274,4 +282,4 @@ class BPEProcessor:
             self._apply_merge_to_sequences(left_id, right_id, new_id)
             self._build_pair_frequencies()
 
-        self.bytes_to_id = {v: k for k, v in self.vocab.items()}
+        self._rebuild_vocab_mapping()
