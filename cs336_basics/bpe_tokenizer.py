@@ -1,52 +1,62 @@
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 import json
 import regex as re
-from typing import Dict, List, Tuple, Iterable, Iterator
+from typing import Dict, List, Tuple, Iterable, Iterator, Union
+from functools import lru_cache
 from cs336_basics.pretokenizer import PreTokenizer
+
+
+def _gpt2_bytes_to_unicode() -> Dict[int, str]:
+    """Map bytes to GPT-2 printable unicode representations."""
+    bs = list(range(ord("!"), ord("~") + 1)) + list(range(ord("¡"), ord("¬") + 1)) + list(range(ord("®"), ord("ÿ") + 1))
+    cs = bs[:]
+    n = 0
+    for b in range(2**8):
+        if b not in bs:
+            bs.append(b)
+            cs.append(2**8 + n)
+            n += 1
+    characters = [chr(n) for n in cs]
+    d = dict(zip(bs, characters))
+    return d
 
 
 class BPEProcessor:
     """
-    BPE tokenizer that can encode/decode
+    BPE tokenizer that can encode/decode.
     Supports special tokens and streaming for large files.
     """
 
     def __init__(self, vocab: Dict[int, bytes], merges: List[Tuple[bytes, bytes]] = None, 
                  special_tokens: List[str] | None = None, pretokenizer: "PreTokenizer | None" = None) -> None:
-        """
-        Initialize tokenizer from vocab, merges, and special tokens.
-        """
+        """Initialize tokenizer from vocab, merges, and special tokens."""
         self.vocab = vocab
         self.merges = merges or []
-        self.special_tokens = special_tokens or []
-        self._special_token_bytes = {t.encode("utf-8") for t in self.special_tokens}
-        self._reverse_vocab = {v: k for k, v in self.vocab.items()}  # Build reverse vocab immediately
+        self.merges_dict = {merge: i for i, merge in enumerate(self.merges)}
+        self.vocab_size = len(self.vocab)
         
-        # Generate merges for special tokens (to reconstruct them byte-by-byte from individual bytes)
-        special_token_merges = []
-        for special_token_str in self.special_tokens:
-            special_token_bytes = special_token_str.encode("utf-8")
-            # Create merges to reconstruct this special token byte by byte
-            # E.g., for b'<|e', we need: b'<' + b'|' -> b'<|', then b'<|' + b'e' -> b'<|e', etc.
-            for i in range(1, len(special_token_bytes)):
-                left = special_token_bytes[:i]
-                right = bytes([special_token_bytes[i]])  # Single byte!
-                special_token_merges.append((left, right))
+        # Add special tokens to vocab if not already present
+        special_tokens = special_tokens or []
+        for token in special_tokens:
+            token_bytes = token.encode("utf-8")
+            if token_bytes not in self.vocab.values():
+                self.vocab[len(self.vocab)] = token_bytes
         
-        # Add special token merges at the BEGINNING with highest priority (lowest rank)
-        self.merges = special_token_merges + self.merges
+        # Build bidirectional vocab mappings
+        self.id_to_bytes = {k: v for k, v in self.vocab.items()}
+        self.bytes_to_id = {v: k for k, v in self.vocab.items()}
         
-        # Build merge ranks for efficient priority-based lookup
-        self._merge_ranks = {merge: i for i, merge in enumerate(self.merges)}
-        self._pat = self._build_pat()
+        # Build special token ID map (sorted by length for greedy matching)
+        self.special_tokens_to_id = {}
+        for token in sorted([token.encode("utf-8") for token in special_tokens], key=len, reverse=True):
+            self.special_tokens_to_id[token] = self.bytes_to_id[token]
         
-        # Training-related attributes
         self.pretokenizer = pretokenizer
         self.sequences: list[list[int]] = []
         self.sequence_counts: list[int] = []
         self.pair_freq: Counter[tuple[int, int]] = Counter()
-        self.vocab_index: int = -1
+        self.vocab_index: int = max(self.vocab.keys()) if self.vocab else -1
         
         self._build_sequences_for_training()
         self._build_pair_frequencies()
@@ -54,20 +64,16 @@ class BPEProcessor:
     @classmethod
     def from_files(cls, vocab_filepath: str, merges_filepath: str, 
                    special_tokens: List[str] | None = None) -> "BPEProcessor":
-        """Load tokenizer from serialized vocab and merges files.
-        
-        Args:
-            vocab_filepath: path to JSON vocab file (maps int -> bytes as list)
-            merges_filepath: path to merges file (one merge per line)
-            special_tokens: optional list of special token strings
-        
-        Returns:
-            BPEProcessor instance
-        """
+        """Load tokenizer from serialized vocab and merges files."""
+        gpt2_bytes_to_unicode = _gpt2_bytes_to_unicode()
+        gpt2_byte_decoder = {v: k for k, v in gpt2_bytes_to_unicode.items()}
 
         with open(vocab_filepath, "r", encoding="utf-8") as vf:
             vocab_json = json.load(vf)
-            vocab = {int(k): bytes(v) for k, v in vocab_json.items()}
+            vocab = {
+                token_id: bytes([gpt2_byte_decoder[c] for c in token_str])
+                for token_str, token_id in vocab_json.items()
+            }
         
         with open(merges_filepath, "r", encoding="utf-8") as mf:
             merges = []
@@ -75,108 +81,142 @@ class BPEProcessor:
                 parts = line.strip().split()
                 if len(parts) != 2:
                     continue
-                left, right = parts
-                merges.append((left.encode("utf-8"), right.encode("utf-8")))
+                merge_left, merge_right = parts
+                left = bytes([gpt2_byte_decoder[c] for c in merge_left])
+                right = bytes([gpt2_byte_decoder[c] for c in merge_right])
+                merges.append((left, right))
 
         return cls(vocab, merges, special_tokens)
 
     def encode(self, text: str) -> List[int]:
         """Encode text string into token IDs."""
-        tokens = self._tokenize_text(text)
-        self._apply_merges(tokens)
-        return [self._reverse_vocab[token] for token in tokens]
+        return list(self.encode_iterable([text]))
 
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
-        """Lazily encode an iterable of strings"""
-
+        """Lazily encode an iterable of strings."""
         for text in iterable:
-            tokens = self._tokenize_text(text)  # flat list of bytes
-            self._apply_merges(tokens)          # merge across the whole sequence
-            for token in tokens:
-                yield self._reverse_vocab[token]
-
+            for token_id in self._encode_single(text):
+                yield token_id
+    
+    def _encode_single(self, text: str) -> List[int]:
+        """Encode a single text string into token IDs."""
+        # First, handle special tokens by splitting text around them
+        results = self._tokenize_special_tokens(text)
+        
+        # Then tokenize each regular text segment
+        token_ids = []
+        for elem in results:
+            if isinstance(elem, str):
+                # Regular text - tokenize with PAT and merges
+                token_ids.extend(self._tokenize_normal_text(elem))
+            elif isinstance(elem, int):
+                # Already a special token ID
+                token_ids.append(elem)
+            else:
+                raise TypeError(f"Unexpected type {type(elem)} in results.")
+        
+        return token_ids
+    
+    def _tokenize_special_tokens(self, text: str) -> List[Union[str, int]]:
+        """Split text by special tokens, returning a mix of strings and special token IDs."""
+        if not self.special_tokens_to_id:
+            return [text]
+        
+        # Build regex pattern for all special tokens
+        patterns = []
+        replacements = {}
+        for special_token in self.special_tokens_to_id.keys():
+            token_str = special_token.decode("utf-8")
+            patterns.append(re.escape(token_str))
+            replacements[token_str] = self.special_tokens_to_id[special_token]
+        
+        pattern = re.compile("|".join(patterns))
+        results = []
+        last_end = 0
+        
+        for match in pattern.finditer(text):
+            # Add regular text before the match
+            if match.start() > last_end:
+                results.append(text[last_end:match.start()])
+            
+            # Add special token ID
+            matched_text = match.group()
+            results.append(replacements[matched_text])
+            last_end = match.end()
+        
+        # Add remaining text
+        if last_end < len(text):
+            results.append(text[last_end:])
+        
+        return results
+    
+    def _tokenize_normal_text(self, text: str) -> List[int]:
+        """Tokenize normal text (no special tokens) into token IDs using PAT + BPE.
+        
+        Tokenizes each PAT word independently using BPE merges, then concatenates the tokens.
+        """
+        # PAT regex from GPT-2 with proper ordering for greedy matching
+        # The pattern ` ?[^\s\p{L}\p{N}]+` must come before `\s+` to match space + punctuation as one token
+        pat = re.compile(r"'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+")
+        words = pat.findall(text)
+        
+        # Tokenize each word independently using BPE
+        token_ids = []
+        for word in words:
+            word_tokens = self._tokenize_word(word)
+            token_ids.extend(word_tokens)
+        
+        return token_ids
+    
+    @lru_cache(maxsize=100000)
+    def _tokenize_word(self, word: str) -> tuple[int, ...]:
+        """Tokenize a single word using BPE merges.
+        
+        Applies BPE merges to the UTF-8 bytes of the word.
+        Cached for performance.
+        """
+        word_bytes = word.encode("utf-8")
+        
+        # First, try to match the full word directly in vocab
+        if word_bytes in self.bytes_to_id:
+            return (self.bytes_to_id[word_bytes],)
+        
+        # Apply BPE merges starting from individual bytes
+        word_bytes_list = [bytes([b]) for b in word_bytes]
+        
+        # Apply merges greedily by rank
+        while True:
+            # Find the best (earliest/lowest rank) merge available
+            best_rank = float("inf")
+            best_idx = -1
+            
+            for i in range(len(word_bytes_list) - 1):
+                pair = (word_bytes_list[i], word_bytes_list[i + 1])
+                if pair in self.merges_dict:
+                    rank = self.merges_dict[pair]
+                    if rank < best_rank:
+                        best_rank = rank
+                        best_idx = i
+            
+            if best_idx == -1:
+                break
+            
+            # Apply the best merge
+            left = word_bytes_list[best_idx]
+            right = word_bytes_list[best_idx + 1]
+            word_bytes_list[best_idx] = left + right
+            del word_bytes_list[best_idx + 1]
+        
+        # Convert bytes to token IDs
+        token_ids = tuple(self.bytes_to_id[b] for b in word_bytes_list)
+        return token_ids
+    
     def decode(self, ids: List[int]) -> str:
         """Decode token IDs back into text."""
         byte_sequence = b""
         for token_id in ids:
-            byte_sequence += self.vocab[token_id]
-
+            byte_sequence += self.id_to_bytes[token_id]
         return byte_sequence.decode("utf-8", errors="replace")
-
-    def _build_pat(self) -> re.Pattern:
-        """Build regex pattern for tokenization (special tokens + PAT).
-        
-        Special tokens must be matched with absolute priority to prevent greedy space matching
-        from consuming spaces before them. We match spaces separately BEFORE punctuation.
-        """
-        # Sort special tokens by length (longest first) to match greedily
-        sorted_specials = sorted(self.special_tokens, key=len, reverse=True)
-        escaped_specials = [re.escape(token) for token in sorted_specials]
-        
-        # GPT-2 canonical PAT pattern, with space pattern BEFORE punctuation
-        # This prevents ` ?[^\s...]+ ` from greedily consuming space before special tokens
-        pat_str = r"'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+|\s+(?!\S)|\s+| ?[^\s\p{L}\p{N}]+"
-        
-        # Build pattern with special tokens first (they have absolute priority)
-        full_pattern = "|".join(escaped_specials + [pat_str]) if escaped_specials else pat_str
-        return re.compile(full_pattern)
-
-    def _tokenize_text(self, text: str) -> List[bytes]:
-        """Tokenize text into bytes format using longest-match-first in vocabulary.
-        
-        Special tokens are kept as single tokens. Regular tokens are matched against
-        the vocabulary to find the longest matching sequence, using merges to guide
-        tokenization for sequences not in vocab.
-        """
-        tokens: List[bytes] = []
-        for match in self._pat.finditer(text):
-            token_str = match.group()
-            token_bytes = token_str.encode("utf-8")
-            
-            # If it's a special token, keep it whole
-            if token_bytes in self._special_token_bytes:
-                tokens.append(token_bytes)
-            # If the whole token is in vocab, keep it whole
-            elif token_bytes in self._reverse_vocab:
-                tokens.append(token_bytes)
-            else:
-                # Token not in vocab - break into individual bytes for BPE merging
-                for b in token_bytes:
-                    tokens.append(bytes([b]))
-
-        return tokens
-
-    def _apply_merges(self, token_list: List[bytes]) -> None:
-        """Apply merges to token list in-place, skipping special tokens.
-        
-        Uses a greedy algorithm: scans left-to-right, applying the highest-priority
-        merge found at each position, then backtracks to check earlier pairs.
-        """
-        if not self._merge_ranks:
-            return
-        
-        i = 0
-        while i < len(token_list) - 1:
-            left, right = token_list[i], token_list[i + 1]
-            
-            # Skip if either is a special token
-            if left in self._special_token_bytes or right in self._special_token_bytes:
-                i += 1
-                continue
-            
-            # Check if this pair is a merge (O(1) lookup via dict)
-            if (left, right) in self._merge_ranks:
-                token_list[i] = left + right
-                del token_list[i + 1]
-                # Backtrack to check if the new token can merge with the previous one
-                if i > 0:
-                    i -= 1
-            else:
-                i += 1
-
-    def _tokens_to_ids(self, tokens: List[bytes]) -> List[int]:
-        """Convert token tuples to vocabulary IDs."""
-        return [self._reverse_vocab[token] for token in tokens]
 
     def _build_sequences_for_training(self) -> None:
         """Convert pretokenizer output into sequences for training."""
@@ -185,12 +225,12 @@ class BPEProcessor:
         
         # Initialize vocab for training
         self.vocab = {i: bytes([i]) for i in range(256)}
-        for i, t in enumerate(self.special_tokens):
+        for i, t in enumerate([]):  # No special tokens in training init
             self.vocab[256 + i] = t.encode("utf-8")
         self.vocab_index = max(self.vocab.keys())
         
         byte_to_id = {bytes([i]): i for i in range(256)}
-        for i, t in enumerate(self.special_tokens):
+        for i, t in enumerate([]):
             byte_to_id[t.encode("utf-8")] = 256 + i
 
         for token_tuple, count in self.pretokenizer.pretokenization_dict_to_bytes.items():
@@ -250,9 +290,10 @@ class BPEProcessor:
             right_bytes = self.vocab[right_id]
             self.vocab[new_id] = left_bytes + right_bytes
             self.merges.append((left_bytes, right_bytes))
-            self._merge_ranks = {merge: i for i, merge in enumerate(self.merges)}  # Rebuild ranks
+            self.merges_dict = {merge: i for i, merge in enumerate(self.merges)}
             
             self._apply_merge_to_sequences(left_id, right_id, new_id)
             self._build_pair_frequencies()
 
-        self._reverse_vocab = {v: k for k, v in self.vocab.items()}
+        self.bytes_to_id = {v: k for k, v in self.vocab.items()}
+        self.id_to_bytes = {k: v for k, v in self.vocab.items()}
