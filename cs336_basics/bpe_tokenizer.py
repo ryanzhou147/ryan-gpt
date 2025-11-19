@@ -1,25 +1,9 @@
 from collections import Counter
-from pathlib import Path
-import json
 import regex as re
+import json
 from typing import Dict, List, Tuple, Iterable, Iterator, Union
 from functools import lru_cache
 from cs336_basics.pretokenizer import PreTokenizer
-
-
-def _gpt2_bytes_to_unicode() -> Dict[int, str]:
-    """Map bytes to GPT-2 printable unicode representations."""
-    bs = list(range(ord("!"), ord("~") + 1)) + list(range(ord("¡"), ord("¬") + 1)) + list(range(ord("®"), ord("ÿ") + 1))
-    cs = bs[:]
-    n = 0
-    for b in range(2**8):
-        if b not in bs:
-            bs.append(b)
-            cs.append(2**8 + n)
-            n += 1
-    characters = [chr(n) for n in cs]
-    d = dict(zip(bs, characters))
-    return d
 
 
 class BPEProcessor:
@@ -43,8 +27,7 @@ class BPEProcessor:
             if token_bytes not in self.vocab.values():
                 self.vocab[len(self.vocab)] = token_bytes
         
-        # Build bidirectional vocab mappings
-        self.id_to_bytes = {k: v for k, v in self.vocab.items()}
+        # Build bidirectional vocab mapping
         self.bytes_to_id = {v: k for k, v in self.vocab.items()}
         
         # Build special token ID map (sorted by length for greedy matching)
@@ -60,33 +43,6 @@ class BPEProcessor:
         
         self._build_sequences_for_training()
         self._build_pair_frequencies()
-
-    @classmethod
-    def from_files(cls, vocab_filepath: str, merges_filepath: str, 
-                   special_tokens: List[str] | None = None) -> "BPEProcessor":
-        """Load tokenizer from serialized vocab and merges files."""
-        gpt2_bytes_to_unicode = _gpt2_bytes_to_unicode()
-        gpt2_byte_decoder = {v: k for k, v in gpt2_bytes_to_unicode.items()}
-
-        with open(vocab_filepath, "r", encoding="utf-8") as vf:
-            vocab_json = json.load(vf)
-            vocab = {
-                token_id: bytes([gpt2_byte_decoder[c] for c in token_str])
-                for token_str, token_id in vocab_json.items()
-            }
-        
-        with open(merges_filepath, "r", encoding="utf-8") as mf:
-            merges = []
-            for line in mf:
-                parts = line.strip().split()
-                if len(parts) != 2:
-                    continue
-                merge_left, merge_right = parts
-                left = bytes([gpt2_byte_decoder[c] for c in merge_left])
-                right = bytes([gpt2_byte_decoder[c] for c in merge_right])
-                merges.append((left, right))
-
-        return cls(vocab, merges, special_tokens)
 
     def encode(self, text: str) -> List[int]:
         """Encode text string into token IDs."""
@@ -116,6 +72,23 @@ class BPEProcessor:
                 raise TypeError(f"Unexpected type {type(elem)} in results.")
         
         return token_ids
+    
+    def from_files(cls, vocab_path: str, merges_path: str, special_tokens: List[str] | None) -> "BPEProcessor":
+        # Load BPEProcessor from vocab and merges files.
+        with open(vocab_path, "r", encoding="utf-8") as vf:         
+            vocab_data = json.load(vf)
+            vocab = {int(k): bytes.fromhex(v) for k, v in vocab_data.items()}
+
+        with open(merges_path, "r", encoding="utf-8") as mf:
+            merges = []
+            for line in mf:
+                parts = line.strip().split()
+                if len(parts) != 2:
+                    continue
+                left, right = bytes.fromhex(parts[0]), bytes.fromhex(parts[1])
+                merges.append((left, right))
+
+        return cls(vocab, merges, special_tokens)       
     
     def _tokenize_special_tokens(self, text: str) -> List[Union[str, int]]:
         """Split text by special tokens, returning a mix of strings and special token IDs."""
@@ -215,7 +188,7 @@ class BPEProcessor:
         """Decode token IDs back into text."""
         byte_sequence = b""
         for token_id in ids:
-            byte_sequence += self.id_to_bytes[token_id]
+            byte_sequence += self.vocab[token_id]
         return byte_sequence.decode("utf-8", errors="replace")
 
     def _build_sequences_for_training(self) -> None:
@@ -302,4 +275,3 @@ class BPEProcessor:
             self._build_pair_frequencies()
 
         self.bytes_to_id = {v: k for k, v in self.vocab.items()}
-        self.id_to_bytes = {k: v for k, v in self.vocab.items()}
