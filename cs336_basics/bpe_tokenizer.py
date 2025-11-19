@@ -97,7 +97,7 @@ class BPEProcessor:
         return token_ids
     
     def _tokenize_special_tokens(self, text: str) -> List[Union[str, int]]:
-        """Split text by special tokens, returning a mix of strings and special token IDs."""
+        """Split text by special tokens, returning strings and special token IDs."""
         if not self.special_tokens_to_id:
             return [text]
         
