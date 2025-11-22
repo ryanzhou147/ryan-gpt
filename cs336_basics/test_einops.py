@@ -1,38 +1,40 @@
 import torch
-from einops import rearrange, einsum
 import matplotlib.pyplot as plt
+from skimage import data
+import numpy as np
+from einops import rearrange
 
+# Load a sample RGB image and downsample
+orig_img = data.astronaut()  # (512, 512, 3)
+orig_img_small = torch.tensor(orig_img[::16, ::16, :], dtype=torch.float32)  # 32x32
+h, w, c = orig_img_small.shape
+channels_last = orig_img_small.unsqueeze(0)  # (1, 32, 32, 3)
 
-images = torch.randn(64, 128, 128, 3) # (batch, height, width, channel)
-dim_by = torch.linspace(start=0.0, end=1.0, steps=10)
-## Reshape and multiply
-dim_value = rearrange(dim_by, "dim_value -> 1 dim_value 1 1 1")
-images_rearr = rearrange(images, "b height width channel -> b 1 height width channel")
-dimmed_images = images_rearr * dim_value
-## Or in one go:
-dimmed_images = einsum(
-images, dim_by,
-"batch height width channel, dim_value -> batch dim_value height width channel"
-)
+# Random linear transformation
+B = torch.randn(h*w, h*w)
 
-print("images:", images.shape)
-print("dim_value:", dim_value.shape)
-print("images_rearr:", images_rearr.shape)
-print("dimmed_images:", dimmed_images.shape)
+# Use einops to flatten and move channels first
+channels_first_flat = rearrange(channels_last, "b h w c -> b c (h w)")
 
-# Inspect the first image and its first dimmed version
-print(dimmed_images[0, 0, :5, :5, 0])  # first 5x5 patch of channel 0
-print(dimmed_images[0, 1, :5, :5, 0])  # scaled by next dim_value
+# Apply linear transformation
+channels_first_flat_transformed = channels_first_flat @ B.T
 
-# Select the first image and all 10 dimmed versions
-plt.figure(figsize=(4, 4))
+# Rearrange back to original shape
+channels_last_transformed = rearrange(channels_first_flat_transformed, "b c (h w) -> b h w c", h=h, w=w)
 
-for img_idx in range(64):            # Loop through all images
-    for b_idx in range(10):          # Loop through all 10 brightness levels
-        plt.clf()                    # Clear previous frame
-        plt.imshow(dimmed_images[img_idx, b_idx].numpy())
-        plt.title(f"Image {img_idx}  |  Brightness {b_idx}")
-        plt.axis("off")
-        plt.pause(0.01)              # ~14 fps fast movie
+# Visualize original vs scrambled
+plt.figure(figsize=(8,4))
 
-plt.close()
+plt.subplot(1,2,1)
+plt.imshow(orig_img_small.numpy().astype(np.uint8))
+plt.title("Original Image")
+plt.axis("off")
+
+plt.subplot(1,2,2)
+scrambled = channels_last_transformed[0].detach().numpy()
+scrambled = np.clip(scrambled, 0, 255)
+plt.imshow(scrambled.astype(np.uint8))
+plt.title("Scrambled Image (after B.T)")
+plt.axis("off")
+
+plt.show()

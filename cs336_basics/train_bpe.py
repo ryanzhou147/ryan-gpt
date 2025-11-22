@@ -149,4 +149,4 @@ def train_test():
     vocab, merges = train_bpe("cs336_basics/test.txt", vocab_size=256+40, special_tokens=['<|endoftext|>'])
 
 if __name__ == "__main__":
-    train_test()
+    train_bpe_expts_owt()
