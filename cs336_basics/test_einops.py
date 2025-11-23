@@ -6,7 +6,7 @@ from einops import rearrange
 
 # Load a sample RGB image and downsample
 orig_img = data.astronaut()  # (512, 512, 3)
-orig_img_small = torch.tensor(orig_img[::16, ::16, :], dtype=torch.float32)  # 32x32
+orig_img_small = torch.tensor(orig_img[::8, ::8, :], dtype=torch.float32)  # 32x32
 h, w, c = orig_img_small.shape
 channels_last = orig_img_small.unsqueeze(0)  # (1, 32, 32, 3)
 
