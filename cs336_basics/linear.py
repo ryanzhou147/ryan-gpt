@@ -1,35 +1,47 @@
+import math
 import torch
 import torch.nn as nn
+import torch.nn.init as init
 
-def __init__(self, in_features, out_features, device=None, dtype=None): 
-    """Construct a
-    linear transformation module. This function should accept the following parameters:
-    in_features: int final dimension of the input
-    out_features: int final dimension of the output
-    device: torch.device | None = None Device to store the parameters on
-    dtype: torch.dtype | None = None Data type of the parameters
-    """
+class Linear(nn.Module):
 
-    return 
+    def __init__(self, in_features, out_features, device=None, dtype=None): 
+        """Construct a
+        linear transformation module. This function should accept the following parameters:
+        in_features: int final dimension of the input
+        out_features: int final dimension of the output
+        device: torch.device | None = None Device to store the parameters on
+        dtype: torch.dtype | None = None Data type of the parameters
+        """
+
+        super().__init__()
+        # Weight parameter (out_features, in_features)
+        self.W = nn.Parameter(
+            torch.empty((out_features, in_features), device=device, dtype=dtype)
+        )
+        # Initialize weights with truncated normal
+        init.trunc_normal_(self.W, mean=0.0, std=0.02)
+
+        return 
 
 
-def forward(self, x: torch.Tensor) -> torch.Tensor:
-    """Apply the linear transformation to the input."""
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply the linear transformation to the input."""
 
-    return 
+        return x @ self.W.T
 
-x = torch.tensor([[1.0, 2.0, 3.0],
-                  [4.0, 5.0, 6.0]])
-print("Original x:")
-print(x)
+    # x = torch.tensor([[1.0, 2.0, 3.0],
+    #                 [4.0, 5.0, 6.0]])
+    # print("Original x:")
+    # print(x)
 
-layer_norm = nn.LayerNorm(3)
-x_norm = layer_norm(x)
-print("\nAfter LayerNorm:")
-print(x_norm)
+    # layer_norm = nn.LayerNorm(3)
+    # x_norm = layer_norm(x)
+    # print("\nAfter LayerNorm:")
+    # print(x_norm)
 
-# Check mean and variance along features
-mean = x_norm.mean(dim=-1)
-std = x_norm.std(dim=-1, unbiased=False)
-print("\nMean per token:", mean)
-print("Std per token:", std)
+    # # Check mean and variance along features
+    # mean = x_norm.mean(dim=-1)
+    # std = x_norm.std(dim=-1, unbiased=False)
+    # print("\nMean per token:", mean)
+    # print("Std per token:", std)
