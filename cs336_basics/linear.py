@@ -29,18 +29,3 @@ class Linear(nn.Module):
 
         return x @ self.W.T
 
-    # x = torch.tensor([[1.0, 2.0, 3.0],
-    #                 [4.0, 5.0, 6.0]])
-    # print("Original x:")
-    # print(x)
-
-    # layer_norm = nn.LayerNorm(3)
-    # x_norm = layer_norm(x)
-    # print("\nAfter LayerNorm:")
-    # print(x_norm)
-
-    # # Check mean and variance along features
-    # mean = x_norm.mean(dim=-1)
-    # std = x_norm.std(dim=-1, unbiased=False)
-    # print("\nMean per token:", mean)
-    # print("Std per token:", std)
