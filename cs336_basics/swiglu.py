@@ -25,11 +25,12 @@ class SwiGLU(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         
-        assert x.shape[-1] == self.d_model, f"Expected input last dimension to be {self.d_model}, but got {x.shape[-1]}"
-        w1_out = self.w1(x)
-        silu_out = w1_out * torch.sigmoid(w1_out)
+        assert x.shape[-1] == self.d_model, f"Expected input last dimension {self.d_model}, got {x.shape[-1]}"
 
-        w3_out = self.w3(x)
+        w1_out = self.w1(x) # Dimensions: (batch_size, seq_len, d_ff)
+        silu_out = w1_out * torch.sigmoid(w1_out) 
+
+        w3_out = self.w3(x) # Dimensions: (batch_size, seq_len, d_ff)
         gated = silu_out * w3_out
 
         return self.w2(gated)
