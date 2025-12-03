@@ -17,7 +17,7 @@ class RotaryPositionalEmbedding(nn.Module):
         self.max_seq_len = max_seq_len
         inv_freq = 1.0 / (theta ** (torch.arange(0, d_k, 2, device=device).float() / d_k))
         positions = torch.arange(0, max_seq_len, device=device).float()
-        sinusoid_inp = einsum('i , j -> i j', positions, inv_freq)
+        sinusoid_inp = einsum(positions, inv_freq, 'i, j -> i j')
         self.register_buffer('cos_cached', torch.cos(sinusoid_inp), persistent=False)
         self.register_buffer('sin_cached', torch.sin(sinusoid_inp), persistent=False)
     
@@ -32,11 +32,13 @@ class RotaryPositionalEmbedding(nn.Module):
         assert seq_len <= self.max_seq_len, f"Input sequence length {seq_len} exceeds max_seq_len {self.max_seq_len}"
 
         cos = self.cos_cached[token_positions]  # Shape: (batch_size, seq_len, d_k/2)
-        sin = self.sin_cahced[token_positions]  # Shape: (batch_size, seq_len, d_k/2)
+        sin = self.sin_cached[token_positions]  # Shape: (batch_size, seq_len, d_k/2)
 
-        x1, x2 = x[... , ::2], x[..., 1::2]  # Split into even and odd parts
+        x_even = x[..., ::2]
+        x_odd = x[..., 1::2]
+
         x_rotated = torch.zeros_like(x)
-        x_rotated[..., ::2] = x1 * cos - x2 * sin
-        x_rotated[..., 1::2] = x1 * sin + x2 * cos
+        x_rotated[..., ::2] = x_even * cos - x_odd * sin
+        x_rotated[..., 1::2] = x_even * sin + x_odd * cos
 
         return x_rotated
