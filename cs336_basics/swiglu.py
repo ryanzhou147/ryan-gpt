@@ -15,15 +15,13 @@ class SwiGLU(nn.Module):
         self.d_model = d_model
         self.d_ff = d_ff
         
-        # Three linear transformations, no bias (following modern LLMs since PaLM and LLaMA)
         self.w1 = nn.Linear(d_model, d_ff, bias=False, device=device, dtype=dtype)
         self.w2 = nn.Linear(d_ff, d_model, bias=False, device=device, dtype=dtype)
         self.w3 = nn.Linear(d_model, d_ff, bias=False, device=device, dtype=dtype)
         
-        # Initialize weights with truncated normal
-        init.trunc_normal_(self.w1.weight, mean=0.0, std=0.02)
-        init.trunc_normal_(self.w2.weight, mean=0.0, std=0.02)
-        init.trunc_normal_(self.w3.weight, mean=0.0, std=0.02)
+        init.trunc_normal_(self.w1.weight)
+        init.trunc_normal_(self.w2.weight)
+        init.trunc_normal_(self.w3.weight)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         

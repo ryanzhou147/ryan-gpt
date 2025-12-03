@@ -12,12 +12,10 @@ class Embedding(nn.Module):
         """
 
         super().__init__()
-        # Embedding parameter (num_embeddings, embedding_dim)
         self.embedding_matrix = nn.Parameter(
             torch.empty((num_embeddings, embedding_dim), device=device, dtype=dtype)
         )
-        # Initialize weights with truncated normal
-        init.trunc_normal_(self.embedding_matrix, mean=0.0, std=0.02)
+        init.trunc_normal_(self.embedding_matrix, mean=0.0, std=1, a=-3, b=3)
 
         return 
 

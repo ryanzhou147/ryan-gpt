@@ -1,3 +1,4 @@
+import math
 import torch
 import torch.nn as nn
 import torch.nn.init as init
@@ -17,7 +18,8 @@ class Linear(nn.Module):
         self.W = nn.Parameter(
             torch.empty((out_features, in_features), device=device, dtype=dtype)
         )
-        init.trunc_normal_(self.W, mean=0.0, std=0.02)
+        std = math.sqrt(2 / (in_features + out_features))
+        init.trunc_normal_(self.W, mean=0.0, std=std, a=-3*std, b=3*std)
 
         return 
 

@@ -3,16 +3,16 @@ import torch.nn as nn
 import torch.nn.init as init
 
 class RMSNorm(nn.Module):
-    def __init__(self, dmodel: int, eps: float = 1e-5, device = None, dtype = None):
+    def __init__(self, d_model: int, eps: float = 1e-5, device = None, dtype = None):
         """Construct an RMSNorm module. This function should accept the following parameters:
-        dmodel: int Dimension of the input
+        d_model: int Dimension of the input
         eps: float = 1e-5 Small constant for numerical stability
         device: torch.device | None = None Device to store the parameters on
         dtype: torch.dtype | None = None Data type of the parameters
         """
         super().__init__()
         self.eps = eps
-        self.weight = nn.Parameter(torch.ones(dmodel, device=device, dtype=dtype))
+        self.weight = nn.Parameter(torch.ones(d_model, device=device, dtype=dtype))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Process input tensor of shape (batch_size, seq_len, dmodel) and return
