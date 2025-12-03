@@ -14,11 +14,9 @@ class Linear(nn.Module):
         """
 
         super().__init__()
-        # Weight parameter (out_features, in_features)
         self.W = nn.Parameter(
             torch.empty((out_features, in_features), device=device, dtype=dtype)
         )
-        # Initialize weights with truncated normal
         init.trunc_normal_(self.W, mean=0.0, std=0.02)
 
         return 
