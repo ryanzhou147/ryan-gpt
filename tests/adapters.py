@@ -95,9 +95,9 @@ def run_swiglu(
     swiglu = SwiGLU(d_model=d_model, d_ff=d_ff)
     
     # Load the provided weights
-    swiglu.w1.weight.data = w1_weight
-    swiglu.w2.weight.data = w2_weight
-    swiglu.w3.weight.data = w3_weight
+    swiglu.w1.W.data = w1_weight
+    swiglu.w2.W.data = w2_weight
+    swiglu.w3.W.data = w3_weight
     
     # Run forward pass
     return swiglu(in_features)

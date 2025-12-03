@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.init as init
+from cs336_basics.linear import Linear
 
 
 class SwiGLU(nn.Module):
@@ -14,17 +15,17 @@ class SwiGLU(nn.Module):
         
         self.d_model = d_model
         self.d_ff = d_ff
+        self.w1 = Linear(d_model, d_ff, device=device, dtype=dtype)
+        self.w2 = Linear(d_ff, d_model, device=device, dtype=dtype)
+        self.w3 = Linear(d_model, d_ff, device=device, dtype=dtype)
         
-        self.w1 = nn.Linear(d_model, d_ff, bias=False, device=device, dtype=dtype)
-        self.w2 = nn.Linear(d_ff, d_model, bias=False, device=device, dtype=dtype)
-        self.w3 = nn.Linear(d_model, d_ff, bias=False, device=device, dtype=dtype)
-        
-        init.trunc_normal_(self.w1.weight)
-        init.trunc_normal_(self.w2.weight)
-        init.trunc_normal_(self.w3.weight)
+        init.trunc_normal_(self.w1.W)
+        init.trunc_normal_(self.w2.W)
+        init.trunc_normal_(self.w3.W)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         
+        assert x.shape[-1] == self.d_model, f"Expected input last dimension to be {self.d_model}, but got {x.shape[-1]}"
         w1_out = self.w1(x)
         silu_out = w1_out * torch.sigmoid(w1_out)
 
