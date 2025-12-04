@@ -1,43 +1,44 @@
 import torch
-from cs336_basics.multihead_self_attention import MultiHeadSelfAttention
-from cs336_basics.swiglu import SwiGLU
-from cs336_basics.rmsnorm import RMSNorm
+import torch.nn as nn
+from cs336_basics.transformer_block import TransformerBlock
+from cs336_basics.linear import Linear
+from cs336_basics.embedding import Embedding
+from einops import rearrange, einsum
 
-class TransformerBlock(torch.nn.Module):
+class TransformerLM(nn.Module):
 
-    def __init__(self, d_model: int, num_heads: int, d_ff: int, with_rope: bool = False,
+    def __init__(self, vocab_size: int, context_length: int, num_layers: int, d_model: int, num_heads: int, d_ff: int, with_rope: bool = False,
                  rope_theta: float | None = None, max_seq_len: int | None = None,
                  device=None, dtype=None) -> None:
         super().__init__()
-        self.d_model = d_model
-        self.num_heads = num_heads
-        self.d_ff = d_ff
-        self.rmsnorm1 = RMSNorm(d_model)
-        self.rmsnorm2 = RMSNorm(d_model)
-        self.mha = MultiHeadSelfAttention(d_model, num_heads, rope_theta=rope_theta, max_seq_len=max_seq_len,
-                                         with_rope=with_rope, device=device, dtype=dtype)
-        self.ffn = SwiGLU(d_model, d_ff)
 
+        self.vocab_size = vocab_size
+        self.context_length = context_length
+        self.num_layers = num_layers
 
-    def forward(self, x: torch.Tensor, token_positions: torch.Tensor | None = None) -> torch.Tensor:
+        self.token_embeddings = Embedding(vocab_size, d_model)
+        self.transformer_block = TransformerBlock(d_model, num_heads, d_ff, with_rope, rope_theta, max_seq_len, device, dtype)
+        self.rmsnorm_final = nn.LayerNorm(d_model, elementwise_affine=True, device=device, dtype=dtype)
+        self.lm_head = Linear(d_model, vocab_size, device=device, dtype=dtype)
+
+    def forward(self, in_indices: torch.Tensor) -> torch.Tensor:
         """
-        Apply the Transformer block to the input tensor.
+        Apply the Transformer language model to the input indices.
         
-        x: torch.Tensor Input tensor of shape (batch_size, seq_len, d_model)
-        token_positions: torch.Tensor | None Tensor of shape (batch_size, seq_len) indicating the position of each token
+        in_indices: torch.Tensor Input tensor of shape (batch_size, sequence_length)
         """
-        # Apply RMSNorm
-        x_norm1 = self.rmsnorm1(x)
-        # Apply Multi-Head Self-Attention
-        mha_out = self.mha(x_norm1, token_positions)
-        # Add residual connection
-        x_res1 = x + mha_out
+        batch_size, seq_len = in_indices.shape
+        assert seq_len <= self.context_length, f"Input sequence length {seq_len} exceeds context_length {self.context_length}"
 
-        # Apply RMSNorm
-        x_norm2 = self.rmsnorm2(x_res1)
-        # Apply SwiGLU Feed-Forward Network
-        ff_out = self.ffn(x_norm2)
-        # Add residual connection
-        y = x_res1 + ff_out
-
-        return y
+        # Get token positions
+        token_positions = torch.arange(seq_len, device=in_indices.device).unsqueeze(0).expand(batch_size, -1) # Shape: (batch_size, seq_len)
+        # Embed input indices
+        x = self.token_embeddings(in_indices) # Shape: (batch_size, seq_len, d_model)
+        # Apply transformer blocks
+        for _ in range(self.num_layers):
+            x = self.transformer_block(x, token_positions)
+        # Apply final RMSNorm
+        x = self.rmsnorm_final(x)
+        # Project to vocabulary logits
+        logits = self.lm_head(x) # Shape: (batch_size, seq_len, vocab_size)
+        return logits

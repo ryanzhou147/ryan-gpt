@@ -322,7 +322,7 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    from cs336_basics.transformer import TransformerBlock
+    from cs336_basics.transformer_block import TransformerBlock
     # Create a TransformerBlock instance
     transformer_block = TransformerBlock(
         d_model=d_model,
@@ -429,7 +429,38 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    from cs336_basics.transformer import TransformerLM
+    # Create a TransformerLM instance
+    transformer_lm = TransformerLM(
+        vocab_size=vocab_size,
+        context_length=context_length,
+        num_layers=num_layers,
+        d_model=d_model,
+        num_heads=num_heads,
+        d_ff=d_ff,
+        with_rope=True,
+        rope_theta=rope_theta,
+        max_seq_len=context_length,
+        device=in_indices.device,
+        dtype=torch.float32,
+    )
+    # Load the provided weights
+    transformer_lm.token_embeddings.embedding_matrix.data = weights['token_embeddings.weight']
+    for layer_idx in range(num_layers):
+        prefix = f'layers.{layer_idx}.'
+        transformer_lm.transformer_block.mha.w_q.data = weights[prefix + 'attn.q_proj.weight']
+        transformer_lm.transformer_block.mha.w_k.data = weights[prefix + 'attn.k_proj.weight']
+        transformer_lm.transformer_block.mha.w_v.data = weights[prefix + 'attn.v_proj.weight']
+        transformer_lm.transformer_block.mha.w_o.data = weights[prefix + 'attn.output_proj.weight']
+        transformer_lm.transformer_block.rmsnorm1.weight.data = weights[prefix + 'ln1.weight']
+        transformer_lm.transformer_block.ffn.w1.W.data = weights[prefix + 'ffn.w1.weight']
+        transformer_lm.transformer_block.ffn.w2.W.data = weights[prefix + 'ffn.w2.weight']
+        transformer_lm.transformer_block.ffn.w3.W.data = weights[prefix + 'ffn.w3.weight']
+        transformer_lm.transformer_block.rmsnorm2.weight.data = weights[prefix + 'ln2.weight']
+    transformer_lm.rmsnorm_final.weight.data = weights['ln_final.weight']
+    transformer_lm.lm_head.W.data = weights['lm_head.weight']
+    # Run forward pass
+    return transformer_lm(in_indices)
 
 
 def run_rmsnorm(
