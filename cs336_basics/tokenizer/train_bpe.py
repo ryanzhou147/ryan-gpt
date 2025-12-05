@@ -3,8 +3,8 @@ from typing import List, Tuple, Dict
 from time import time
 import cProfile, pstats
 
-from cs336_basics.pretokenizer import PreTokenizer
-from cs336_basics.bpe_tokenizer import BPEProcessor
+from cs336_basics.tokenizer.pretokenizer import PreTokenizer
+from cs336_basics.tokenizer.bpe_tokenizer import BPEProcessor
 
 
 def train_bpe(input_path: str | Path, vocab_size: int, special_tokens: List[str]) -> Tuple[Dict[int, bytes], List[Tuple[bytes, bytes]]]:

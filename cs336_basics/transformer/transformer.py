@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
-from cs336_basics.transformer_block import TransformerBlock
-from cs336_basics.linear import Linear
-from cs336_basics.embedding import Embedding
+from cs336_basics.transformer.transformer_block import TransformerBlock
+from cs336_basics.transformer.linear import Linear
+from cs336_basics.transformer.embedding import Embedding
 from einops import rearrange, einsum
 
 class TransformerLM(nn.Module):

@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 from einops import einsum, rearrange
 from cs336_basics.utility import scaled_dot_product_attention
-from cs336_basics.rope import RotaryPositionalEmbedding
-from cs336_basics.linear import Linear
+from cs336_basics.transformer.rope import RotaryPositionalEmbedding
+from cs336_basics.transformer.linear import Linear
 
 class MultiHeadSelfAttention(nn.Module):
 

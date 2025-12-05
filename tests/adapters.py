@@ -28,7 +28,7 @@ def run_linear(
     Returns:
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
-    from cs336_basics.linear import Linear
+    from cs336_basics.transformer.linear import Linear
     
     # Create a Linear layer instance
     linear = Linear(in_features=d_in, out_features=d_out)
@@ -58,7 +58,7 @@ def run_embedding(
     Returns:
         Float[Tensor, "... d_model"]: Batch of embeddings returned by your Embedding layer.
     """
-    from cs336_basics.embedding import Embedding
+    from cs336_basics.transformer.embedding import Embedding
     # Create an Embedding layer instance
     embedding = Embedding(num_embeddings=vocab_size, embedding_dim=d_model)
     # Load the provided weights
@@ -89,7 +89,7 @@ def run_swiglu(
     Returns:
         Float[Tensor, "... d_model"]: Output embeddings of the same shape as the input embeddings.
     """
-    from cs336_basics.swiglu import SwiGLU
+    from cs336_basics.transformer.swiglu import SwiGLU
     
     # Create a SwiGLU instance
     swiglu = SwiGLU(d_model=d_model, d_ff=d_ff)
@@ -155,7 +155,7 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    from cs336_basics.multihead_self_attention import MultiHeadSelfAttention
+    from cs336_basics.transformer.multihead_self_attention import MultiHeadSelfAttention
     # Create a MultiHeadSelfAttention instance
     mha = MultiHeadSelfAttention(
         d_model=d_model,
@@ -208,7 +208,7 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    from cs336_basics.multihead_self_attention import MultiHeadSelfAttention
+    from cs336_basics.transformer.multihead_self_attention import MultiHeadSelfAttention
 
     # Create a MultiHeadSelfAttention instance
     mha = MultiHeadSelfAttention(
@@ -245,7 +245,7 @@ def run_rope(
     Returns:
         Float[Tensor, " ... sequence_length d_k"]: Tensor with RoPEd input.
     """
-    from cs336_basics.rope import RotaryPositionalEmbedding
+    from cs336_basics.transformer.rope import RotaryPositionalEmbedding
 
     rope = RotaryPositionalEmbedding(theta=theta, d_k=d_k, max_seq_len=max_seq_len)
 
@@ -322,7 +322,7 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    from cs336_basics.transformer_block import TransformerBlock
+    from cs336_basics.transformer.transformer_block import TransformerBlock
     # Create a TransformerBlock instance
     transformer_block = TransformerBlock(
         d_model=d_model,
@@ -429,7 +429,7 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    from cs336_basics.transformer import TransformerLM
+    from cs336_basics.transformer.transformer import TransformerLM
     # Create a TransformerLM instance
     transformer_lm = TransformerLM(
         vocab_size=vocab_size,
@@ -483,7 +483,7 @@ def run_rmsnorm(
         Float[Tensor,"... d_model"]: Tensor of with the same shape as `in_features` with the output of running
         RMSNorm of the `in_features`.
     """
-    from cs336_basics.rmsnorm import RMSNorm
+    from cs336_basics.transformer.rmsnorm import RMSNorm
     
     rmsnorm = RMSNorm(d_model=d_model, eps=eps)
     
@@ -669,7 +669,7 @@ def get_tokenizer(
     Returns:
         A BPE tokenizer that uses the provided vocab, merges, and special tokens.
     """
-    from cs336_basics.bpe_tokenizer import BPEProcessor
+    from cs336_basics.tokenizer.bpe_tokenizer import BPEProcessor
     return BPEProcessor(vocab, merges, special_tokens)
 
 
@@ -702,7 +702,7 @@ def run_train_bpe(
     """
     # Delegate to the package implementation if available
     try:
-        from cs336_basics.train_bpe import train_bpe
+        from cs336_basics.tokenizer.train_bpe import train_bpe
     except Exception:
         raise
 
