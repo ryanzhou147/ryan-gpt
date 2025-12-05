@@ -37,7 +37,7 @@ def gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: flo
     total_norm = 0.0
     for parameter in parameters:
         if parameter.grad is not None:
-            param_norm = parameter.grad.data.norm(2)
+            param_norm = torch.linalg.vector_norm(parameter.grad.data, ord=2)
             total_norm += param_norm.item() ** 2
     
     total_norm = total_norm ** 0.5
