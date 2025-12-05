@@ -1,11 +1,3 @@
-# Problem (adamw): Implement AdamW (2 points)
-# Deliverable: Implement the AdamW optimizer as a subclass of torch.optim.Optimizer. Your
-# class should take the learning rate α in __init__, as well as the β, ϵ and λ hyperparameters. To help
-# you keep state, the base Optimizer class gives you a dictionary self.state, which maps nn.Parameter
-# objects to a dictionary that stores any information you need for that parameter (for AdamW, this would
-# be the moment estimates). Implement [adapters.get_adamw_cls] and make sure it passes uv run
-# pytest -k test_adamw
-
 import torch
 from typing import Optional
 from collections.abc import Callable
@@ -16,17 +8,6 @@ class AdamW(torch.optim.Optimizer):
         defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
         super(AdamW, self).__init__(params, defaults)
 
-# init(θ) (Initialize learnable parameters)
-# m ← 0 (Initial value of the first moment vector; same shape as θ)
-# v ← 0 (Initial value of the second moment vector; same shape as θ)
-# for t = 1, . . . , T do
-# Sample batch of data Bt
-# g ← ∇θℓ(θ; Bt) (Compute the gradient of the loss at the current time step)
-# m ← β1m + (1 − β1)g (Update the first moment estimate)
-# v ← β2v + (1 − β2)g^2 (Update the second moment estimate)
-# αt ← α √1−(β2)^t / 1−(β1)^t (Compute adjusted α for iteration t)
-# θ ← θ − αt √m / v+ϵ (Update the parameters)
-# θ ← θ − αλθ (Apply weight decay)
     def step(self, closure: Optional[Callable] = None):
         loss = None if closure is None else closure()
         for group in self.param_groups:
