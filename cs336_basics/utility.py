@@ -47,4 +47,15 @@ def gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: flo
         for parameter in parameters:
             if parameter.grad is not None:
                 parameter.grad.data.mul_(scale)
+
+
+def data_loading(x: torch.Tensor, batch_size: int, context_length: int, device: str) -> tuple[torch.Tensor, torch.Tensor]:
+    num_tokens = x.size(0) # Total number of tokens in the dataset
+    input_sequences = torch.zeros((batch_size, context_length), dtype=torch.long, device=device)
+    target_sequences = torch.zeros((batch_size, context_length), dtype=torch.long, device=device)
+    for i in range(batch_size):
+        start_index = torch.randint(0, num_tokens - context_length, (1,)).item() # Random start index 
+        input_sequences[i] = x[start_index : start_index + context_length]
+        target_sequences[i] = x[start_index + 1 : start_index + context_length + 1]
+    return input_sequences, target_sequences
     
