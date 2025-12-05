@@ -28,3 +28,9 @@ class CrossEntropyLoss(nn.Module):
         # Gather the log probabilities of the target classes
         nll_loss = -log_probs.gather(dim=-1, index=self.targets.unsqueeze(-1)).squeeze(-1)
         return nll_loss.mean()
+
+    def perlexity(self) -> torch.Tensor:
+        """Compute the perplexity from the cross-entropy loss."""
+        ce_loss = self.forward()
+        perplexity = torch.exp(ce_loss)
+        return perplexity

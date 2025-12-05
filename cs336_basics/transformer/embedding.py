@@ -17,9 +17,6 @@ class Embedding(nn.Module):
         )
         init.trunc_normal_(self.embedding_matrix, mean=0.0, std=1, a=-3, b=3)
 
-        return 
-
-
     def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
         """Lookup the embedding vectors for the given token IDs."""
 
