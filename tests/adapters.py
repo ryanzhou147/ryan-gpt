@@ -525,7 +525,11 @@ def run_get_batch(
         is the sampled input sequences, and the second tuple item is the corresponding
         language modeling labels.
     """
-    raise NotImplementedError
+    
+    from cs336_basics.utility import data_loading
+
+    x_tensor = torch.tensor(dataset, dtype=torch.long, device=device)
+    return data_loading(x_tensor, batch_size, context_length, device)
 
 
 def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:
@@ -559,7 +563,7 @@ def run_cross_entropy(
     Returns:
         Float[Tensor, ""]: The average cross-entropy loss across examples.
     """
-    from cs336_basics.cross_entropy import CrossEntropyLoss
+    from cs336_basics.optimizer.cross_entropy import CrossEntropyLoss
     cross_entropy = CrossEntropyLoss(inputs, targets)
     return cross_entropy()
 
@@ -582,7 +586,7 @@ def get_adamw_cls() -> Any:
     """
     Returns a torch.optim.Optimizer that implements AdamW.
     """
-    from cs336_basics.adamw import AdamW
+    from cs336_basics.optimizer.adamw import AdamW
     return AdamW
 
 
