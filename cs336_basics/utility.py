@@ -1,5 +1,7 @@
 import torch
 import math
+import os
+import typing
 from collections.abc import Iterable 
 from einops import einsum
 
@@ -58,4 +60,40 @@ def data_loading(x: torch.Tensor, batch_size: int, context_length: int, device: 
         input_sequences[i] = x[start_index : start_index + context_length]
         target_sequences[i] = x[start_index + 1 : start_index + context_length + 1]
     return input_sequences, target_sequences
+
+# What if the dataset is too big to load into memory? We can use a Unix systemcall named mmap which
+# maps a file on disk to virtual memory, and lazily loads the file contents when that memory location is
+# accessed. Thus, you can “pretend” you have the entire dataset in memory. Numpy implements this through
+# np.memmap (or the flag mmap_mode='r' to np.load, if you originally saved the array with np.save), which
+# will return a numpy array-like object that loads the entries on-demand as you access them. When sampling
+# from your dataset (i.e., a numpy array) during training, be sure load the dataset in memorymapped mode (via np.memmap or the flag mmap_mode='r' to np.load, depending on how you saved the
+# array). Make sure you also specify a dtype that matches the array that you’re loading. It may be helpful
+# to explicitly verify that the memory-mapped data looks correct (e.g., doesn’t contain values beyond the
+# expected vocabulary size).
+
+# A checkpoint should have all the states that we need to resume training. We of course want to be able
+# to restore model weights at a minimum. If using a stateful optimizer (such as AdamW), we will also need
+# to save the optimizer’s state (e.g., in the case of AdamW, the moment estimates). Finally, to resume the
+# learning rate schedule, we will need to know the iteration number we stopped at. PyTorch makes it easy to
+# save all of these: every nn.Module has a state_dict() method that returns a dictionary with all learnable
+# weights; we can restore these weights later with the sister method load_state_dict(). The same goes
+# for any nn.optim.Optimizer. Finally, torch.save(obj, dest) can dump an object (e.g., a dictionary
+# containing tensors in some values, but also regular Python objects like integers) to a file (path) or file-like
+# object, which can then be loaded back into memory with torch.load(src).
+
+def save_checkpoint(model: torch.nn.Module, optimizer: torch.optim.Optimizer, 
+                    iteration: int, out: str | os.PathLike | typing.BinaryIO | typing.IO[bytes]) -> int:
+    checkpoint = {
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'iteration': iteration
+    }
+    torch.save(checkpoint, out)
+
+def load_checkpoint(src: str | os.PathLike | typing.BinaryIO | typing.IO[bytes],
+                    model: torch.nn.Module, optimizer: torch.optim.Optimizer) -> None:
     
+    checkpoint = torch.load(src)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    return checkpoint['iteration']
