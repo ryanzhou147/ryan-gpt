@@ -1,4 +1,5 @@
 import torch
+import math
 from einops import einsum
 
 def softmax(x: torch.Tensor, dim: int) -> torch.Tensor:
@@ -19,3 +20,14 @@ def scaled_dot_product_attention(query: torch.Tensor, key: torch.Tensor, value: 
     
     outputs = einsum(attn_weights, value, '... i j, ... j d -> ... i d')
     return outputs
+
+def learning_rate_schedule(current_iteration: int, max_learning_rate: float, minimum_learning_rate: float, warmup_iterations: int, cosine_annealing_iterations: int) -> float:
+    if current_iteration < warmup_iterations:
+        lr = max_learning_rate * (current_iteration / warmup_iterations)
+    elif current_iteration <= cosine_annealing_iterations: 
+        progress = (current_iteration - warmup_iterations) / (cosine_annealing_iterations - warmup_iterations)
+        lr = minimum_learning_rate + 0.5 * (1 + math.cos(progress * math.pi)) * (max_learning_rate - minimum_learning_rate)
+    else: 
+        lr = minimum_learning_rate
+    
+    return lr
