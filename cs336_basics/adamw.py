@@ -9,14 +9,14 @@ class AdamW(torch.optim.Optimizer):
         super(AdamW, self).__init__(params, defaults)
 
     def step(self, closure: Optional[Callable] = None):
-        loss = None if closure is None else closure()
+        loss = closure() if closure is not None else None
         for group in self.param_groups:
             for p in group['params']:
+
                 if p.grad is None:
                     continue
+
                 grad = p.grad.data
-                if grad.is_sparse:
-                    raise RuntimeError('AdamW does not support sparse gradients')
                 
                 state = self.state[p]
                 
@@ -50,3 +50,4 @@ class AdamW(torch.optim.Optimizer):
                 if group['weight_decay'] != 0:
                     p.data.add_(p.data, alpha=-group['lr'] * group['weight_decay'])
 
+        return loss
