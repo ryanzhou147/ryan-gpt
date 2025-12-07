@@ -97,3 +97,96 @@ def load_checkpoint(src: str | os.PathLike | typing.BinaryIO | typing.IO[bytes],
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     return checkpoint['iteration']
+
+
+@torch.no_grad()
+def generate(
+    model: torch.nn.Module,
+    prompt_ids: torch.Tensor,
+    max_new_tokens: int,
+    context_length: int,
+    eos_token_id: int | None = None,
+    temperature: float = 1.0,
+    top_p: float | None = None,
+) -> torch.Tensor:
+    """
+    Generate text from a language model.
+    
+    Args:
+        model: Language model that outputs logits of shape [batch, seq, vocab]
+        prompt_ids: Input token IDs of shape [seq_len] or [batch, seq_len]
+        max_new_tokens: Maximum number of new tokens to generate
+        context_length: Maximum context length the model supports
+        eos_token_id: If provided, stop generation when this token is produced
+        temperature: Temperature for softmax scaling (lower = more deterministic)
+        top_p: Nucleus sampling threshold (if provided, sample from smallest set with cumulative prob >= top_p)
+    
+    Returns:
+        Generated token IDs including the prompt
+    """
+    # Handle 1D input
+    if prompt_ids.dim() == 1:
+        prompt_ids = prompt_ids.unsqueeze(0)
+    
+    generated = prompt_ids.clone()
+    for _ in range(max_new_tokens):
+        # Truncate to context length
+        input_ids = generated[:, -context_length:]
+        
+        # Get logits for last position
+        logits = model(input_ids)[:, -1, :]  # [batch, vocab]
+        
+        # Temperature scaling
+        if temperature != 1.0:
+            logits = logits / temperature
+        
+        # Convert to probabilities
+        probs = softmax(logits, dim=-1)
+        
+        # Top-p (nucleus) sampling
+        if top_p is not None:
+            sorted_probs, sorted_indices = torch.sort(probs, dim=-1, descending=True)
+            cumsum_probs = torch.cumsum(sorted_probs, dim=-1)
+            # Find cutoff: smallest set where cumsum >= top_p
+            mask = cumsum_probs - sorted_probs > top_p
+            sorted_probs[mask] = 0.0
+            # Renormalize
+            sorted_probs = sorted_probs / sorted_probs.sum(dim=-1, keepdim=True)
+            # Sample from sorted distribution then map back
+            next_token = torch.multinomial(sorted_probs, num_samples=1)
+            next_token = torch.gather(sorted_indices, -1, next_token)
+        else:
+            next_token = torch.multinomial(probs, num_samples=1)
+        
+        generated = torch.cat([generated, next_token], dim=1)
+        
+        # Stop if EOS
+        if eos_token_id is not None and (next_token == eos_token_id).all():
+            break
+    
+    return generated.squeeze(0) if prompt_ids.size(0) == 1 else generated
+
+
+import json
+import time
+
+class Logger:
+    """Minimal experiment logger that tracks metrics vs steps and wallclock time."""
+    
+    def __init__(self, log_file: str | None = None):
+        self.log_file = log_file
+        self.start_time = time.time()
+        self.logs = []
+    
+    def log(self, step: int, metrics: dict):
+        """Log metrics at a given step with wallclock time."""
+        entry = {"step": step, "time": time.time() - self.start_time, **metrics}
+        self.logs.append(entry)
+        if self.log_file:
+            with open(self.log_file, "a") as f:
+                f.write(json.dumps(entry) + "\n")
+    
+    def save(self, path: str):
+        """Save all logs to JSON file."""
+        with open(path, "w") as f:
+            json.dump(self.logs, f, indent=2)
