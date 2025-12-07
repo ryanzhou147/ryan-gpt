@@ -6,6 +6,7 @@ __pycache__/
 data/
 out_bpe_owt/
 .vscode
+scripts/
 
 # C extensions
 *.so
