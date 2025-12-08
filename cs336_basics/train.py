@@ -145,10 +145,10 @@ def train(args):
 
         # Checkpoint
         if iter > 0 and iter % args.checkpoint_interval == 0:
-            save_checkpoint(model, optimizer, iter, ckpt_dir / f"ckpt_{iter}.pt")
+            save_checkpoint(model, optimizer, iter, ckpt_dir / f"checkpoint_{iter}.pt")
 
     # Final checkpoint
-    save_checkpoint(model, optimizer, args.max_iters, ckpt_dir / "ckpt_final.pt")
+    save_checkpoint(model, optimizer, args.max_iters, ckpt_dir / "checkpoint_final.pt")
     logger.save(str(log_dir / "log.json"))
     print("Done.")
 
