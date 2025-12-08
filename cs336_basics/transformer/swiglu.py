@@ -18,10 +18,6 @@ class SwiGLU(nn.Module):
         self.w1 = Linear(d_model, d_ff, device=device, dtype=dtype)
         self.w2 = Linear(d_ff, d_model, device=device, dtype=dtype)
         self.w3 = Linear(d_model, d_ff, device=device, dtype=dtype)
-        
-        init.trunc_normal_(self.w1.W)
-        init.trunc_normal_(self.w2.W)
-        init.trunc_normal_(self.w3.W)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         
