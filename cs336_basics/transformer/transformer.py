@@ -3,6 +3,7 @@ import torch.nn as nn
 from cs336_basics.transformer.transformer_block import TransformerBlock
 from cs336_basics.transformer.linear import Linear
 from cs336_basics.transformer.embedding import Embedding
+from cs336_basics.transformer.rmsnorm import RMSNorm
 from einops import rearrange, einsum
 
 class TransformerLM(nn.Module):
@@ -15,10 +16,17 @@ class TransformerLM(nn.Module):
         self.vocab_size = vocab_size
         self.context_length = context_length
         self.num_layers = num_layers
+        
+        # Use context_length as max_seq_len if not provided
+        if max_seq_len is None:
+            max_seq_len = context_length
 
         self.token_embeddings = Embedding(vocab_size, d_model)
-        self.transformer_block = TransformerBlock(d_model, num_heads, d_ff, with_rope, rope_theta, max_seq_len, device, dtype)
-        self.rmsnorm_final = nn.LayerNorm(d_model, elementwise_affine=True, device=device, dtype=dtype)
+        self.transformer_blocks = nn.ModuleList([
+            TransformerBlock(d_model, num_heads, d_ff, with_rope, rope_theta, max_seq_len, device, dtype)
+            for _ in range(num_layers)
+        ])
+        self.rmsnorm_final = RMSNorm(d_model, device=device, dtype=dtype)
         self.lm_head = Linear(d_model, vocab_size, device=device, dtype=dtype)
 
     def forward(self, in_indices: torch.Tensor) -> torch.Tensor:
@@ -35,8 +43,8 @@ class TransformerLM(nn.Module):
         # Embed input indices
         x = self.token_embeddings(in_indices) # Shape: (batch_size, seq_len, d_model)
         # Apply transformer blocks
-        for _ in range(self.num_layers):
-            x = self.transformer_block(x, token_positions)
+        for block in self.transformer_blocks:
+            x = block(x, token_positions)
         # Apply final RMSNorm
         x = self.rmsnorm_final(x)
         # Project to vocabulary logits
