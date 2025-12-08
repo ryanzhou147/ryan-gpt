@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+import torch.nn.init as init
+import math
 from einops import einsum, rearrange
 from cs336_basics.utility import scaled_dot_product_attention
 from cs336_basics.transformer.rope import RotaryPositionalEmbedding
@@ -21,6 +23,13 @@ class MultiHeadSelfAttention(nn.Module):
         self.w_k = nn.Parameter(torch.empty((num_heads * self.d_k, d_model), device=device, dtype=dtype))
         self.w_v = nn.Parameter(torch.empty((num_heads * self.d_v, d_model), device=device, dtype=dtype))
         self.w_o = nn.Parameter(torch.empty((d_model, num_heads * self.d_v), device=device, dtype=dtype))
+
+        # Initialize weights
+        std = math.sqrt(2 / (d_model + num_heads * self.d_k))
+        init.trunc_normal_(self.w_q, mean=0.0, std=std, a=-3*std, b=3*std)
+        init.trunc_normal_(self.w_k, mean=0.0, std=std, a=-3*std, b=3*std)
+        init.trunc_normal_(self.w_v, mean=0.0, std=std, a=-3*std, b=3*std)
+        init.trunc_normal_(self.w_o, mean=0.0, std=std, a=-3*std, b=3*std)
 
         self.with_rope = with_rope
 
