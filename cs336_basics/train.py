@@ -46,7 +46,7 @@ def tokenize(input_path: str, output_dir: str, vocab_size: int = 10000, special_
     # Tokenize
     print(f"Tokenizing {input_path}...")
     with open(input_path) as f:
-        text = f.read().replace("\n\n", "\n\n<|endoftext|>")
+        text = f.read()
     ids = tokenizer.encode(text)
     
     out_path = output_dir / (Path(input_path).stem + ".npy")
@@ -63,13 +63,13 @@ def train(args):
     
     # Setup output directories
     output_dir = Path(args.output_dir)
-    log_dir = output_dir / "logs"
     ckpt_dir = output_dir / "checkpoints"
-    log_dir.mkdir(parents=True, exist_ok=True)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     
     # Logger
-    logger = Logger(str(log_dir / "log.jsonl"))
+    run_name = f"{Path(args.output_dir).name}"
+    config = vars(args)
+    logger = Logger(project="cs336", name=run_name, config=config)
 
     # Load data with memmap
     train_data = torch.from_numpy(np.load(args.train_data, mmap_mode='r').astype(np.int64))
@@ -106,7 +106,7 @@ def train(args):
 
     # Training loop
     model.train()
-    for iter in range(start_iter, args.max_iters):
+    for iter in range(start_iter, args.max_iters + 1):
         # LR schedule
         lr = learning_rate_schedule(iter, args.max_lr, args.min_lr, args.warmup_iters, args.cosine_cycle_iters)
         for pg in optimizer.param_groups:
@@ -149,7 +149,7 @@ def train(args):
 
     # Final checkpoint
     save_checkpoint(model, optimizer, args.max_iters, ckpt_dir / "checkpoint_final.pt")
-    logger.save(str(log_dir / "log.json"))
+    logger.finish()
     print("Done.")
 
 
