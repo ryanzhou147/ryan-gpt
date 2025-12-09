@@ -7,6 +7,7 @@ data/
 out_bpe_owt/
 .vscode
 scripts/
+wandb/
 
 # C extensions
 *.so
