@@ -1,9 +1,9 @@
 import torch
 import numpy as np
 import argparse
-import os
 import json
 from pathlib import Path
+from cs336_basics.logger import Logger
 
 from cs336_basics.transformer.transformer import TransformerLM
 from cs336_basics.optimizer.adamw import AdamW
