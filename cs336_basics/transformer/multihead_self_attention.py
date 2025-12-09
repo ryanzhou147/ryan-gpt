@@ -37,6 +37,13 @@ class MultiHeadSelfAttention(nn.Module):
             self.rope = RotaryPositionalEmbedding(theta=rope_theta, d_k=self.d_k, max_seq_len=max_seq_len, device=device)
         else:
             self.rope = None
+        
+        # Cache causal mask to avoid recreating every forward pass
+        if max_seq_len is not None:
+            causal_mask = torch.tril(torch.ones((max_seq_len, max_seq_len), device=device, dtype=torch.bool))
+            self.register_buffer('causal_mask', causal_mask.view(1, 1, max_seq_len, max_seq_len), persistent=False)
+        else:
+            self.causal_mask = None
 
     def forward(self, x: torch.Tensor, token_positions: torch.Tensor | None = None) -> torch.Tensor:
         """
@@ -65,25 +72,27 @@ class MultiHeadSelfAttention(nn.Module):
         _, seq_len, _ = x.size()
         
         if self.rope is not None and token_positions is not None:
-            # Apply RoPE to Q and K per-head (not to V)
+            # Apply RoPE to Q and K - vectorized across all heads
             # Q, K shape: (batch, num_heads, seq_len, d_k)
-            # RoPE expects: (batch, seq_len, d_k)
-            Q_rope = []
-            K_rope = []
-            for head_idx in range(self.num_heads):
-                Q_head = Q[:, head_idx, :, :]  # (batch, seq_len, d_k)
-                K_head = K[:, head_idx, :, :]  # (batch, seq_len, d_k)
-                Q_rope.append(self.rope(Q_head, token_positions))
-                K_rope.append(self.rope(K_head, token_positions))
+            # Reshape to (batch * num_heads, seq_len, d_k) for RoPE
+            b, h, s, d = Q.shape
+            Q_flat = Q.reshape(b * h, s, d)
+            K_flat = K.reshape(b * h, s, d)
             
-            Q = torch.stack(Q_rope, dim=1)  # (batch, num_heads, seq_len, d_k)
-            K = torch.stack(K_rope, dim=1)  # (batch, num_heads, seq_len, d_k)
+            # Expand token_positions: (batch, seq) -> (batch * num_heads, seq)
+            pos_expanded = token_positions.unsqueeze(1).expand(b, h, s).reshape(b * h, s)
+            
+            Q_flat = self.rope(Q_flat, pos_expanded)
+            K_flat = self.rope(K_flat, pos_expanded)
+            
+            Q = Q_flat.reshape(b, h, s, d)
+            K = K_flat.reshape(b, h, s, d)
         
-        # Create causal mask: token i can attend to j <= i
-        # Lower triangular (1s below diagonal, including diagonal) means ALLOW
-        # mask[i,j] = 1 if j <= i (allow attending to past/current), 0 otherwise
-        causal_mask = torch.tril(torch.ones((seq_len, seq_len), device=x.device, dtype=torch.bool))
-        causal_mask = rearrange(causal_mask, 's1 s2 -> 1 1 s1 s2')  # Broadcast dimensions
+        # Use cached causal mask (sliced to current seq_len) or create if not cached
+        if self.causal_mask is not None:
+            causal_mask = self.causal_mask[:, :, :seq_len, :seq_len]
+        else:
+            causal_mask = torch.tril(torch.ones((1, 1, seq_len, seq_len), device=x.device, dtype=torch.bool))
 
         # Attention: (batch, num_heads, seq_len, d_k) -> (batch, num_heads, seq_len, d_v)
         attn_output = scaled_dot_product_attention(Q, K, V, causal_mask)
