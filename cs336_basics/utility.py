@@ -71,15 +71,6 @@ def data_loading(x: torch.Tensor, batch_size: int, context_length: int, device: 
 # to explicitly verify that the memory-mapped data looks correct (e.g., doesn’t contain values beyond the
 # expected vocabulary size).
 
-# A checkpoint should have all the states that we need to resume training. We of course want to be able
-# to restore model weights at a minimum. If using a stateful optimizer (such as AdamW), we will also need
-# to save the optimizer’s state (e.g., in the case of AdamW, the moment estimates). Finally, to resume the
-# learning rate schedule, we will need to know the iteration number we stopped at. PyTorch makes it easy to
-# save all of these: every nn.Module has a state_dict() method that returns a dictionary with all learnable
-# weights; we can restore these weights later with the sister method load_state_dict(). The same goes
-# for any nn.optim.Optimizer. Finally, torch.save(obj, dest) can dump an object (e.g., a dictionary
-# containing tensors in some values, but also regular Python objects like integers) to a file (path) or file-like
-# object, which can then be loaded back into memory with torch.load(src).
 
 def save_checkpoint(model: torch.nn.Module, optimizer: torch.optim.Optimizer, 
                     iteration: int, out: str | os.PathLike | typing.BinaryIO | typing.IO[bytes]) -> int:
@@ -100,7 +91,7 @@ def load_checkpoint(src: str | os.PathLike | typing.BinaryIO | typing.IO[bytes],
 
 
 @torch.no_grad()
-def generate(
+def decode(
     model: torch.nn.Module,
     prompt_ids: torch.Tensor,
     max_new_tokens: int,
@@ -110,12 +101,12 @@ def generate(
     top_p: float | None = None,
 ) -> torch.Tensor:
     """
-    Generate text from a language model.
+    Decode text from a language model.
     
     Args:
         model: Language model that outputs logits of shape [batch, seq, vocab]
         prompt_ids: Input token IDs of shape [seq_len] or [batch, seq_len]
-        max_new_tokens: Maximum number of new tokens to generate
+        max_new_tokens: Maximum number of new tokens to decode
         context_length: Maximum context length the model supports
         eos_token_id: If provided, stop generation when this token is produced
         temperature: Temperature for softmax scaling (lower = more deterministic)
@@ -171,22 +162,18 @@ import json
 import time
 
 class Logger:
-    """Minimal experiment logger that tracks metrics vs steps and wallclock time."""
     
-    def __init__(self, log_file: str | None = None):
-        self.log_file = log_file
+    def __init__(self, project: str = "cs336", name: str = None, config: dict = None):
+        import wandb
+        self.wandb = wandb
         self.start_time = time.time()
-        self.logs = []
+        self.run = wandb.init(project=project, name=name, config=config)
     
     def log(self, step: int, metrics: dict):
         """Log metrics at a given step with wallclock time."""
         entry = {"step": step, "time": time.time() - self.start_time, **metrics}
-        self.logs.append(entry)
-        if self.log_file:
-            with open(self.log_file, "a") as f:
-                f.write(json.dumps(entry) + "\n")
+        self.wandb.log(entry, step=step)
     
-    def save(self, path: str):
-        """Save all logs to JSON file."""
-        with open(path, "w") as f:
-            json.dump(self.logs, f, indent=2)
+    def finish(self):
+        """Finish the wandb run."""
+        self.wandb.finish()
