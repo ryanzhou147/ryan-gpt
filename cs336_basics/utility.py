@@ -2,6 +2,7 @@ import torch
 import math
 import os
 import typing
+import numpy as np
 from collections.abc import Iterable 
 from einops import einsum
 
@@ -51,15 +52,15 @@ def gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: flo
                 parameter.grad.data.mul_(scale)
 
 
-def data_loading(x: torch.Tensor, batch_size: int, context_length: int, device: str) -> tuple[torch.Tensor, torch.Tensor]:
-    num_tokens = x.size(0) # Total number of tokens in the dataset
-    input_sequences = torch.zeros((batch_size, context_length), dtype=torch.long, device=device)
-    target_sequences = torch.zeros((batch_size, context_length), dtype=torch.long, device=device)
-    for i in range(batch_size):
-        start_index = torch.randint(0, num_tokens - context_length, (1,)).item() # Random start index 
-        input_sequences[i] = x[start_index : start_index + context_length]
-        target_sequences[i] = x[start_index + 1 : start_index + context_length + 1]
-    return input_sequences, target_sequences
+def data_loading(x: np.ndarray, batch_size: int, context_length: int, device: str) -> tuple[torch.Tensor, torch.Tensor]:
+    n = len(x)
+    starts = np.random.randint(0, n - context_length, size=batch_size)
+    offsets = np.arange(context_length + 1)
+    
+    # Single gather from memmap, then convert + transfer in one call
+    seq = torch.tensor(x[starts[:, None] + offsets], dtype=torch.long, device=device)
+    
+    return seq[:, :-1], seq[:, 1:]
 
 # What if the dataset is too big to load into memory? We can use a Unix systemcall named mmap which
 # maps a file on disk to virtual memory, and lazily loads the file contents when that memory location is
