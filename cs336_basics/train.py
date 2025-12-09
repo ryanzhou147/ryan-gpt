@@ -3,8 +3,8 @@ import numpy as np
 import argparse
 import json
 from pathlib import Path
-from cs336_basics.logger import Logger
 
+from cs336_basics.logger import Logger
 from cs336_basics.transformer.transformer import TransformerLM
 from cs336_basics.optimizer.adamw import AdamW
 from cs336_basics.optimizer.cross_entropy import CrossEntropyLoss
@@ -14,9 +14,7 @@ from cs336_basics.utility import (
     save_checkpoint,
     load_checkpoint,
     data_loading,
-    Logger,
 )
-
 
 def tokenize(input_path: str, output_dir: str, vocab_size: int = 10000, special_tokens: list[str] = None):
     """Train BPE tokenizer and tokenize a text file to .npy"""
@@ -50,7 +48,7 @@ def tokenize(input_path: str, output_dir: str, vocab_size: int = 10000, special_
     ids = tokenizer.encode(text)
     
     out_path = output_dir / (Path(input_path).stem + ".npy")
-    np.save(out_path, np.array(ids, dtype=np.uint16))
+    np.save(out_path, np.array(ids, dtype=np.uint16)) # CHANGE IF VOCAB > 65536
     print(f"Saved {len(ids):,} tokens to {out_path}")
     return str(out_path), len(tokenizer.vocab)
 
@@ -72,8 +70,8 @@ def train(args):
     logger = Logger(project="cs336", name=run_name, config=config)
 
     # Load data with memmap
-    train_data = torch.from_numpy(np.load(args.train_data, mmap_mode='r').astype(np.int64))
-    val_data = torch.from_numpy(np.load(args.val_data, mmap_mode='r').astype(np.int64)) if args.val_data else None
+    train_data = np.load(args.train_data, mmap_mode='r')
+    val_data = np.load(args.val_data, mmap_mode='r') if args.val_data else None
     print(f"Train tokens: {len(train_data):,}")
 
     # Model
@@ -114,20 +112,20 @@ def train(args):
 
         # Forward
         x, y = data_loading(train_data, args.batch_size, args.context_length, device)
-        logits = model(x)
-        loss = CrossEntropyLoss(logits, y).forward()
+        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+            logits = model(x)
+            loss = CrossEntropyLoss(logits, y).forward()
 
         # Backward
         optimizer.zero_grad()
         loss.backward()
-        if args.max_grad_norm > 0:
-            gradient_clipping(model.parameters(), args.max_grad_norm)
+        gradient_clipping(model.parameters(), args.max_grad_norm)
         optimizer.step()
 
         # Logging
         if iter % args.log_interval == 0:
-            metrics = {"train_loss": loss.item(), "ppl": loss.exp().item(), "lr": lr}
-            msg = f"iter {iter} | loss {loss.item():.4f} | ppl {loss.exp().item():.2f} | lr {lr:.2e}"
+            metrics = {"loss": loss.item(), "lr": lr}
+            msg = f"iter {iter} | loss {loss.item():.4f} | lr {lr:.2e}"
             if val_data is not None and iter % args.eval_interval == 0:
                 model.eval()
                 val_losses = []
@@ -138,8 +136,7 @@ def train(args):
                 model.train()
                 val_loss = sum(val_losses) / len(val_losses)
                 metrics["val_loss"] = val_loss
-                metrics["val_ppl"] = np.exp(val_loss)
-                msg += f" | val_loss {val_loss:.4f} | val_ppl {np.exp(val_loss):.2f}"
+                msg += f" | val_loss {val_loss:.4f}"
             logger.log(iter, metrics)
             print(msg)
 
