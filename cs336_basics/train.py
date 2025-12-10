@@ -41,14 +41,26 @@ def tokenize(input_path: str, output_dir: str, vocab_size: int = 10000, special_
     
     tokenizer = BPEProcessor.from_files(str(vocab_path), str(merges_path), special_tokens)
     
-    # Tokenize
+    # Tokenize using encode_iterable for memory-efficient streaming
     print(f"Tokenizing {input_path}...")
-    with open(input_path) as f:
-        text = f.read()
-    ids = tokenizer.encode(text)
-    
     out_path = output_dir / (Path(input_path).stem + ".npy")
-    np.save(out_path, np.array(ids, dtype=np.uint16)) # CHANGE IF VOCAB > 65536
+    
+    # File objects are iterables that yield lines - pass directly to encode_iterable
+    import time
+    start_time = time.time()
+    ids = []
+    with open(input_path, 'r', encoding='utf-8') as f:
+        for i, token_id in enumerate(tokenizer.encode_iterable(f)):
+            ids.append(token_id)
+            if i > 0 and i % 10_000_000 == 0:
+                elapsed = time.time() - start_time
+                rate = i / elapsed
+                print(f"  {i:,} tokens ({elapsed:.1f}s, {rate:,.0f} tok/s)")
+    ids = np.array(ids, dtype=np.uint16)
+    total_time = time.time() - start_time
+    print(f"Tokenization complete: {len(ids):,} tokens in {total_time:.1f}s")
+    
+    np.save(out_path, ids)
     print(f"Saved {len(ids):,} tokens to {out_path}")
     return str(out_path), len(tokenizer.vocab)
 
