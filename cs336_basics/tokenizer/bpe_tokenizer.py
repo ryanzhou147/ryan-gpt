@@ -236,16 +236,53 @@ class BPEProcessor:
         return max(candidates, key=self._pair_key)
 
     def _apply_merge_to_sequences(self, left_id: int, right_id: int, new_id: int) -> None:
-        """Apply merge to all training sequences."""
+        """Apply merge to all training sequences and update pair frequencies incrementally."""
         if not self.sequences:
             return
         
-        for sequence in self.sequences:
+        merge_pair = (left_id, right_id)
+        
+        for seq_idx, sequence in enumerate(self.sequences):
+            count = self.sequence_counts[seq_idx]
             i = 0
             while i < len(sequence) - 1:
                 if sequence[i] == left_id and sequence[i + 1] == right_id:
+                    # Remove old pairs involving positions i and i+1
+                    # Left neighbor pair: (seq[i-1], left_id)
+                    if i > 0:
+                        old_left_pair = (sequence[i - 1], left_id)
+                        self.pair_freq[old_left_pair] -= count
+                        if self.pair_freq[old_left_pair] <= 0:
+                            del self.pair_freq[old_left_pair]
+                    
+                    # Right neighbor pair: (right_id, seq[i+2])
+                    if i + 2 < len(sequence):
+                        old_right_pair = (right_id, sequence[i + 2])
+                        self.pair_freq[old_right_pair] -= count
+                        if self.pair_freq[old_right_pair] <= 0:
+                            del self.pair_freq[old_right_pair]
+                    
+                    # The merged pair itself
+                    self.pair_freq[merge_pair] -= count
+                    if self.pair_freq[merge_pair] <= 0:
+                        del self.pair_freq[merge_pair]
+                    
+                    # Apply the merge
                     sequence[i] = new_id
                     del sequence[i + 1]
+                    
+                    # Add new pairs involving new_id
+                    # New left pair: (seq[i-1], new_id)
+                    if i > 0:
+                        new_left_pair = (sequence[i - 1], new_id)
+                        self.pair_freq[new_left_pair] += count
+                    
+                    # New right pair: (new_id, seq[i+1])
+                    if i + 1 < len(sequence):
+                        new_right_pair = (new_id, sequence[i + 1])
+                        self.pair_freq[new_right_pair] += count
+                    
+                    # Don't increment i - check if new_id can merge with next token
                 else:
                     i += 1
 
@@ -263,8 +300,11 @@ class BPEProcessor:
 
     def run_bpe(self, num_merges: int) -> None:
         """Run BPE training for num_merges iterations."""
-        self._build_pair_frequencies()
-        for _ in range(num_merges):
+        self._build_pair_frequencies()  # Build once at start
+        for merge_num in range(num_merges):
+            if merge_num % 100 == 0:
+                print(f"Merge {merge_num}/{num_merges}, vocab size: {len(self.vocab)}")
+            
             best_pair = self._select_best_pair()
             if best_pair is None:
                 break
@@ -277,9 +317,9 @@ class BPEProcessor:
             right_bytes = self.vocab[right_id]
             self.vocab[new_id] = left_bytes + right_bytes
             self.merges.append((left_bytes, right_bytes))
-            self.merges_dict = {merge: i for i, merge in enumerate(self.merges)}
+            self.merges_dict[(left_bytes, right_bytes)] = len(self.merges) - 1
             
+            # Incrementally update frequencies (no full rebuild!)
             self._apply_merge_to_sequences(left_id, right_id, new_id)
-            self._build_pair_frequencies()
 
         self._rebuild_vocab_mapping()
