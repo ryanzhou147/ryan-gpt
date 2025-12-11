@@ -126,12 +126,12 @@ def train(args):
         x, y = data_loading(train_data, args.batch_size, args.context_length, device)
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             logits = model(x)
-            loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
+            loss = CrossEntropyLoss(logits, y).forward()
 
         # Backward
         optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
+        gradient_clipping(model.parameters(), args.max_grad_norm)
         optimizer.step()
 
         # Logging
