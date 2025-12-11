@@ -13,6 +13,10 @@ class Logger:
         entry = {"step": step, "time": time.time() - self.start_time, **metrics}
         self.wandb.log(entry, step=step)
     
+    def elapsed_iterations(self, iter: int ) -> float:
+        """Return iterations per second."""
+        return iter / self.elapsed_time() if self.elapsed_time() > 0 else 0.0
+    
     def elapsed_time(self) -> float:
         """Return seconds since logger was created."""
         return time.time() - self.start_time
