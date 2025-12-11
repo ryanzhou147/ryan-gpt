@@ -137,7 +137,17 @@ def train(args):
         # Logging
         if iter % args.log_interval == 0:
             metrics = {"loss": loss.item(), "lr": lr}
-            msg = f"iter {iter} | loss {loss.item():.4f} | lr {lr:.2e}"
+            elapsed = logger.elapsed_time()
+            
+            # Build message with ETA if we have timing data
+            msg = f"iter {iter} | loss {loss.item():.4f} | lr {lr:.2e} | time {elapsed:.1f}s"
+            iters_done = iter - start_iter
+            if iters_done > 0:
+                iters_remaining = args.max_iters - iter
+                eta_min = (iters_remaining * elapsed / iters_done) / 60
+                msg += f" | ETA {eta_min:.1f}min"
+
+            # Validation
             if val_data is not None and iter % args.eval_interval == 0:
                 model.eval()
                 val_losses = []
@@ -149,6 +159,7 @@ def train(args):
                 val_loss = sum(val_losses) / len(val_losses)
                 metrics["val_loss"] = val_loss
                 msg += f" | val_loss {val_loss:.4f}"
+            
             logger.log(iter, metrics)
             print(msg)
 
@@ -190,7 +201,7 @@ if __name__ == "__main__":
     tr.add_argument("--max_lr", type=float, default=6e-4)
     tr.add_argument("--min_lr", type=float, default=6e-5)
     tr.add_argument("--beta1", type=float, default=0.9)
-    tr.add_argument("--beta2", type=float, default=0.98)
+    tr.add_argument("--beta2", type=float, default=0.99)
     tr.add_argument("--eps", type=float, default=1e-8)
     tr.add_argument("--weight_decay", type=float, default=0.1)
     tr.add_argument("--max_grad_norm", type=float, default=1.0)

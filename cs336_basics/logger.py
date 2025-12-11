@@ -13,6 +13,10 @@ class Logger:
         entry = {"step": step, "time": time.time() - self.start_time, **metrics}
         self.wandb.log(entry, step=step)
     
+    def elapsed_time(self) -> float:
+        """Return seconds since logger was created."""
+        return time.time() - self.start_time
+    
     def finish(self):
         """Finish the wandb run."""
         self.wandb.finish()
