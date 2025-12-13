@@ -1,4 +1,4 @@
-# GPT Trainer
+# ryan-gpt
 
 A from-scratch GPT implementation with BPE tokenization, RoPE positional embeddings, and wandb logging.
 
