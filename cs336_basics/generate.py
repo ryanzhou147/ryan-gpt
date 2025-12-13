@@ -14,16 +14,17 @@ parser.add_argument("--top_p", type=float, default=0.9)
 args = parser.parse_args()
 
 # Dataset-specific paths
-if args.dataset == "tinystories":
-    vocab_path = "data/tinystories/vocab.json"
-    merges_path = "data/tinystories/merges.txt"
-    default_checkpoint = "data/tinystories/bs_64/checkpoints/checkpoint_final.pt"
-    default_prompt = "Once upon a time"
-else:  # owt
-    vocab_path = "data/owt/vocab.json"
-    merges_path = "data/owt/merges.txt"
-    default_checkpoint = "data/owt/main_experiment/checkpoints/checkpoint_final.pt"
-    default_prompt = "The scientists discovered that"
+match args.dataset:
+    case "tinystories":
+        vocab_path = "data/tinystories/vocab.json"
+        merges_path = "data/tinystories/merges.txt"
+        default_checkpoint = "data/tinystories/bs_64/checkpoints/checkpoint_final.pt"
+        default_prompt = "Once upon a time"
+    case "owt":
+        vocab_path = "data/owt/vocab.json"
+        merges_path = "data/owt/merges.txt"
+        default_checkpoint = "data/owt/main_experiment/checkpoints/checkpoint_final.pt"
+        default_prompt = "The scientists discovered that"
 
 checkpoint_path = args.checkpoint or default_checkpoint
 prompt = args.prompt or default_prompt

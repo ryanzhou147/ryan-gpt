@@ -45,7 +45,7 @@ def tokenize(input_path: str, output_dir: str, vocab_size: int = 10000, special_
     print(f"Tokenizing {input_path}...")
     out_path = output_dir / (Path(input_path).stem + ".npy")
     
-    # File objects are iterables that yield lines - pass directly to encode_iterable
+    # File objects are iterables that yield lines
     import time
     start_time = time.time()
     ids = []
@@ -73,8 +73,8 @@ def train(args):
     
     # Setup output directories
     output_dir = Path(args.output_dir)
-    ckpt_dir = output_dir / "checkpoints"
-    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_dir = output_dir / "checkpoints"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
     
     # Logger
     run_name = f"{Path(args.output_dir).name}"
@@ -165,10 +165,10 @@ def train(args):
 
         # Checkpoint
         if iter > 0 and iter % args.checkpoint_interval == 0:
-            save_checkpoint(model, optimizer, iter, ckpt_dir / f"checkpoint_{iter}.pt")
+            save_checkpoint(model, optimizer, iter, checkpoint_dir / f"checkpoint_{iter}.pt")
 
     # Final checkpoint
-    save_checkpoint(model, optimizer, args.max_iters, ckpt_dir / "checkpoint_final.pt")
+    save_checkpoint(model, optimizer, args.max_iters, checkpoint_dir / "checkpoint_final.pt")
     logger.finish()
     print("Done.")
 
