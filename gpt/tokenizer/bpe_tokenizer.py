@@ -3,7 +3,7 @@ import regex as re
 import json
 from typing import Dict, List, Tuple, Iterable, Iterator, Union
 from functools import lru_cache
-from cs336_basics.tokenizer.pretokenizer import PreTokenizer
+from gpt.tokenizer.pretokenizer import PreTokenizer
 
 
 class BPEProcessor:

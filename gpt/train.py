@@ -13,16 +13,16 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from cs336_basics.logger import Logger
-from cs336_basics.optimizer.adamw import AdamW
-from cs336_basics.transformer.transformer import TransformerLM
-from cs336_basics.utility import cosine_lr_schedule, save_checkpoint, load_checkpoint
+from gpt.logger import Logger
+from gpt.optimizer.adamw import AdamW
+from gpt.transformer.transformer import TransformerLM
+from gpt.utility import learning_rate_schedule, save_checkpoint, load_checkpoint
 
 
 def tokenize(input_path: str, output_dir: str, vocab_size: int = 10000):
     """Train BPE tokenizer on input file and convert to token IDs."""
-    from cs336_basics.tokenizer.train_bpe import train_bpe
-    from cs336_basics.tokenizer.bpe_tokenizer import BPEProcessor
+    from gpt.tokenizer.train_bpe import train_bpe
+    from gpt.tokenizer.bpe_tokenizer import BPEProcessor
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -114,7 +114,7 @@ def train(args):
     # Train
     model.train()
     for step in range(start_iter, args.max_steps + 1):
-        lr = cosine_lr_schedule(step, args.lr, args.min_lr, args.warmup_steps, args.max_steps)
+        lr = learning_rate_schedule(step, args.lr, args.min_lr, args.warmup_steps, args.max_steps)
         for pg in optimizer.param_groups:
             pg['lr'] = lr
 

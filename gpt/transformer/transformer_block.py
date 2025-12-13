@@ -1,7 +1,7 @@
 import torch
-from cs336_basics.transformer.multihead_self_attention import MultiHeadSelfAttention
-from cs336_basics.transformer.swiglu import SwiGLU
-from cs336_basics.transformer.rmsnorm import RMSNorm
+from gpt.transformer.multihead_self_attention import MultiHeadSelfAttention
+from gpt.transformer.swiglu import SwiGLU
+from gpt.transformer.rmsnorm import RMSNorm
 
 class TransformerBlock(torch.nn.Module):
 

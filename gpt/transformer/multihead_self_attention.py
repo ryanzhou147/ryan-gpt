@@ -3,9 +3,9 @@ import torch.nn as nn
 import torch.nn.init as init
 import math
 from einops import einsum, rearrange
-from cs336_basics.utility import scaled_dot_product_attention
-from cs336_basics.transformer.rope import RotaryPositionalEmbedding
-from cs336_basics.transformer.linear import Linear
+from gpt.utility import scaled_dot_product_attention
+from gpt.transformer.rope import RotaryPositionalEmbedding
+from gpt.transformer.linear import Linear
 
 class MultiHeadSelfAttention(nn.Module):
 

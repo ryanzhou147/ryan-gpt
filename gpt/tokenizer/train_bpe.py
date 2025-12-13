@@ -3,8 +3,8 @@ from typing import List, Tuple, Dict
 from time import time
 import cProfile, pstats
 
-from cs336_basics.tokenizer.pretokenizer import PreTokenizer
-from cs336_basics.tokenizer.bpe_tokenizer import BPEProcessor
+from gpt.tokenizer.pretokenizer import PreTokenizer
+from gpt.tokenizer.bpe_tokenizer import BPEProcessor
 
 
 def train_bpe(input_path: str | Path, vocab_size: int, special_tokens: List[str]) -> Tuple[Dict[int, bytes], List[Tuple[bytes, bytes]]]:
@@ -146,7 +146,7 @@ def train_bpe_expts_owt():
     return a_summary, b_summary
 
 def train_test():
-    vocab, merges = train_bpe("cs336_basics/test.txt", vocab_size=256+40, special_tokens=['<|endoftext|>'])
+    vocab, merges = train_bpe("gpt/test.txt", vocab_size=256+40, special_tokens=['<|endoftext|>'])
 
 if __name__ == "__main__":
     train_bpe_expts_owt()

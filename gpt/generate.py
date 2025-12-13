@@ -4,9 +4,9 @@
 import argparse
 import torch
 
-from cs336_basics.transformer.transformer import TransformerLM
-from cs336_basics.tokenizer.bpe_tokenizer import BPEProcessor
-from cs336_basics.utility import generate
+from gpt.transformer.transformer import TransformerLM
+from gpt.tokenizer.bpe_tokenizer import BPEProcessor
+from gpt.utility import decode as generate
 
 PRESETS = {
     "tinystories": {

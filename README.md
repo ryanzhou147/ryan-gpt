@@ -49,7 +49,7 @@ cd ..
 Train a BPE tokenizer and convert text to token IDs:
 
 ```bash
-python -m cs336_basics.train tokenize \
+python -m gpt.train tokenize \
   --input data/TinyStoriesV2-GPT4-train.txt \
   --output_dir data/tinystories \
   --vocab_size 10000
@@ -62,7 +62,7 @@ This creates:
 
 Tokenize validation set using the same vocabulary:
 ```bash
-python -m cs336_basics.train tokenize \
+python -m gpt.train tokenize \
   --input data/TinyStoriesV2-GPT4-valid.txt \
   --output_dir data/tinystories
 ```
@@ -70,7 +70,7 @@ python -m cs336_basics.train tokenize \
 ### 2. Train Model
 
 ```bash
-python -m cs336_basics.train train \
+python -m gpt.train train \
   --train_data data/tinystories/TinyStoriesV2-GPT4-train.npy \
   --val_data data/tinystories/TinyStoriesV2-GPT4-valid.npy \
   --output_dir runs/tinystories \
@@ -96,7 +96,7 @@ Training logs to [Weights & Biases](https://wandb.ai). Set `--project` to custom
 ### 3. Resume Training
 
 ```bash
-python -m cs336_basics.train train \
+python -m gpt.train train \
   --train_data data/tinystories/TinyStoriesV2-GPT4-train.npy \
   --output_dir runs/tinystories \
   --vocab_size 10000 \
@@ -106,7 +106,7 @@ python -m cs336_basics.train train \
 ## Generate Text
 
 ```bash
-python -m cs336_basics.generate \
+python -m gpt.generate \
   --preset tinystories \
   --prompt "Once upon a time" \
   --max_tokens 200 \
@@ -139,7 +139,7 @@ d_ff: 1344
 ## Project Structure
 
 ```
-cs336_basics/
+gpt/
 ├── train.py          # Training CLI
 ├── generate.py       # Text generation
 ├── logger.py         # Wandb wrapper

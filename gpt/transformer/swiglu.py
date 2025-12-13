@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.init as init
-from cs336_basics.transformer.linear import Linear
+from gpt.transformer.linear import Linear
 
 
 class SwiGLU(nn.Module):
