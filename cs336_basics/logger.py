@@ -1,26 +1,25 @@
+"""Weights & Biases logging wrapper."""
+
 import time
 
+
 class Logger:
+    """Simple wandb logger with timing utilities."""
     
-    def __init__(self, project: str = "cs336", name: str = None, config: dict = None):
+    def __init__(self, project: str = "gpt", name: str = None, config: dict = None):
         import wandb
-        self.wandb = wandb
-        self.start_time = time.time()
-        self.run = wandb.init(project=project, name=name, config=config)
+        self._wandb = wandb
+        self._start = time.time()
+        self._run = wandb.init(project=project, name=name, config=config)
     
     def log(self, step: int, metrics: dict):
-        """Log metrics at a given step with wallclock time."""
-        entry = {"step": step, "time": time.time() - self.start_time, **metrics}
-        self.wandb.log(entry, step=step)
-    
-    def elapsed_iterations(self, iter: int ) -> float:
-        """Return iterations per second."""
-        return iter / self.elapsed_time() if self.elapsed_time() > 0 else 0.0
+        """Log metrics at given step."""
+        self._wandb.log({"step": step, "time": self.elapsed_time(), **metrics}, step=step)
     
     def elapsed_time(self) -> float:
-        """Return seconds since logger was created."""
-        return time.time() - self.start_time
+        """Seconds since logger creation."""
+        return time.time() - self._start
     
     def finish(self):
-        """Finish the wandb run."""
-        self.wandb.finish()
+        """End the wandb run."""
+        self._wandb.finish()
