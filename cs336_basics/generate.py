@@ -1,67 +1,72 @@
-import torch
+#!/usr/bin/env python3
+"""Generate text from a trained GPT model."""
+
 import argparse
+import torch
+
 from cs336_basics.transformer.transformer import TransformerLM
 from cs336_basics.tokenizer.bpe_tokenizer import BPEProcessor
-from cs336_basics.utility import decode
+from cs336_basics.utility import generate
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--dataset", type=str, default="tinystories", choices=["tinystories", "owt"])
-parser.add_argument("--checkpoint", type=str, default=None, help="Path to checkpoint (default: best for dataset)")
-parser.add_argument("--prompt", type=str, default=None, help="Custom prompt")
-parser.add_argument("--max_tokens", type=int, default=300)
-parser.add_argument("--temperature", type=float, default=0.7)
-parser.add_argument("--top_p", type=float, default=0.9)
-args = parser.parse_args()
+PRESETS = {
+    "tinystories": {
+        "vocab": "data/tinystories/vocab.json",
+        "merges": "data/tinystories/merges.txt",
+        "checkpoint": "data/tinystories/bs_64/checkpoints/checkpoint_final.pt",
+        "prompt": "Once upon a time",
+    },
+    "owt": {
+        "vocab": "data/owt/vocab.json",
+        "merges": "data/owt/merges.txt",
+        "checkpoint": "data/owt/main_experiment/checkpoints/checkpoint_final.pt",
+        "prompt": "The scientists discovered that",
+    },
+}
 
-# Dataset-specific paths
-match args.dataset:
-    case "tinystories":
-        vocab_path = "data/tinystories/vocab.json"
-        merges_path = "data/tinystories/merges.txt"
-        default_checkpoint = "data/tinystories/bs_64/checkpoints/checkpoint_final.pt"
-        default_prompt = "Once upon a time"
-    case "owt":
-        vocab_path = "data/owt/vocab.json"
-        merges_path = "data/owt/merges.txt"
-        default_checkpoint = "data/owt/main_experiment/checkpoints/checkpoint_final.pt"
-        default_prompt = "The scientists discovered that"
 
-checkpoint_path = args.checkpoint or default_checkpoint
-prompt = args.prompt or default_prompt
+def main():
+    parser = argparse.ArgumentParser(description="Generate text from GPT")
+    parser.add_argument("--preset", choices=PRESETS.keys(), default="tinystories")
+    parser.add_argument("--checkpoint", help="Override checkpoint path")
+    parser.add_argument("--prompt", help="Override prompt")
+    parser.add_argument("--max_tokens", type=int, default=300)
+    parser.add_argument("--temperature", type=float, default=0.7)
+    parser.add_argument("--top_p", type=float, default=0.9)
+    args = parser.parse_args()
 
-# Load tokenizer
-tokenizer = BPEProcessor.from_files(vocab_path, merges_path, ["<|endoftext|>"])
+    preset = PRESETS[args.preset]
+    checkpoint_path = args.checkpoint or preset["checkpoint"]
+    prompt = args.prompt or preset["prompt"]
 
-# Load model
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = TransformerLM(
-    vocab_size=10000,
-    context_length=256,
-    num_layers=4,
-    d_model=512,
-    num_heads=16,
-    d_ff=1344,
-    with_rope=True,
-    rope_theta=10000.0,
-).to(device)
+    # Load tokenizer
+    tokenizer = BPEProcessor.from_files(preset["vocab"], preset["merges"], ["<|endoftext|>"])
 
-print(f"Loading checkpoint: {checkpoint_path}")
-checkpoint = torch.load(checkpoint_path, map_location=device)
-model.load_state_dict(checkpoint['model_state_dict'])
-model.eval()
+    # Load model
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = TransformerLM(
+        vocab_size=10000,
+        context_length=256,
+        num_layers=4,
+        d_model=512,
+        num_heads=16,
+        d_ff=1344,
+        with_rope=True,
+        rope_theta=10000.0,
+    ).to(device)
 
-eos_id = tokenizer.vocab.get(b"<|endoftext|>")
+    print(f"Loading: {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    model.eval()
 
-prompt_ids = torch.tensor(tokenizer.encode(prompt), dtype=torch.long, device=device)
+    eos_id = tokenizer.vocab.get(b"<|endoftext|>")
+    prompt_ids = torch.tensor(tokenizer.encode(prompt), dtype=torch.long, device=device)
 
-print("=" * 70)
-print(f"Dataset: {args.dataset}")
-print(f"Prompt: {prompt}")
-print(f"Temperature: {args.temperature}, Top-p: {args.top_p}")
-print("=" * 70)
+    print(f"\nPrompt: {prompt}")
+    print(f"Temperature: {args.temperature}, Top-p: {args.top_p}")
+    print("-" * 60)
 
-with torch.no_grad():
-    generated_ids = decode(
+    generated_ids = generate(
         model,
         prompt_ids,
         max_new_tokens=args.max_tokens,
@@ -71,6 +76,10 @@ with torch.no_grad():
         top_p=args.top_p,
     )
 
-generated_text = tokenizer.decode(generated_ids.tolist())
-print(f"\nTotal tokens: {len(generated_ids)}")
-print(f"\n{generated_text}")
+    text = tokenizer.decode(generated_ids.tolist())
+    print(f"{text}\n")
+    print(f"[{len(generated_ids)} tokens]")
+
+
+if __name__ == "__main__":
+    main()
