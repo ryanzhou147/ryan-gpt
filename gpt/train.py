@@ -11,10 +11,10 @@ from pathlib import Path
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 
 from gpt.logger import Logger
 from gpt.optimizer.adamw import AdamW
+from gpt.optimizer.cross_entropy import CrossEntropyLoss
 from gpt.transformer.transformer import TransformerLM
 from gpt.utility import learning_rate_schedule, save_checkpoint, load_checkpoint
 
@@ -122,7 +122,7 @@ def train(args):
         
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             logits = model(x)
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
+            loss = CrossEntropyLoss().forward(logits.reshape(-1, logits.size(-1)), y.reshape(-1))
 
         optimizer.zero_grad()
         loss.backward()
@@ -148,7 +148,7 @@ def train(args):
                     vx, vy = get_batch(val_data, args.batch_size, args.context_length, device)
                     with torch.no_grad():
                         vlogits = model(vx)
-                        val_losses.append(F.cross_entropy(vlogits.view(-1, vlogits.size(-1)), vy.view(-1)).item())
+                        val_losses.append(CrossEntropyLoss().forward(vlogits.reshape(-1, vlogits.size(-1)), vy.reshape(-1)).item())
                 model.train()
                 val_loss = sum(val_losses) / len(val_losses)
                 metrics["val_loss"] = val_loss

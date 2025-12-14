@@ -564,8 +564,8 @@ def run_cross_entropy(
         Float[Tensor, ""]: The average cross-entropy loss across examples.
     """
     from gpt.optimizer.cross_entropy import CrossEntropyLoss
-    cross_entropy = CrossEntropyLoss(inputs, targets)
-    return cross_entropy()
+    cross_entropy = CrossEntropyLoss()
+    return cross_entropy.forward(inputs, targets)
 
 
 def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float) -> None:
