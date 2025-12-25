@@ -35,8 +35,11 @@ def run_classify_toxic_speech(text: str) -> tuple[Any, float]:
 
 
 def run_classify_quality(text: str) -> tuple[Any, float]:
-    raise NotImplementedError
-
+    model_path = "quality_classifier.bin"
+    from cs336_data.quality_classifier import classify_string
+    import fasttext
+    model = fasttext.load_model(model_path)
+    return classify_string(model, text)
 
 def run_gopher_quality_filter(text: str) -> bool:
     from cs336_data.gopher_filter import run_gopher_quality_filter
