@@ -21,10 +21,9 @@ def run_mask_phone_numbers(text: str) -> tuple[str, int]:
     from cs336_data.mask_pii import mask_phone_number
     return mask_phone_number(text)
 
-
 def run_mask_ips(text: str) -> tuple[str, int]:
-    raise NotImplementedError
-
+    from cs336_data.mask_pii import mask_ip_address
+    return mask_ip_address(text)
 
 def run_classify_nsfw(text: str) -> tuple[Any, float]:
     raise NotImplementedError
