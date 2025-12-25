@@ -10,8 +10,8 @@ def run_extract_text_from_html_bytes(html_bytes: bytes) -> str | None:
     return run_extract_text_from_html_bytes(html_bytes)
 
 def run_identify_language(text: str) -> tuple[Any, float]:
-    raise NotImplementedError
-
+    from cs336_data.language_identification import run_identify_language
+    return run_identify_language(text)
 
 def run_mask_emails(text: str) -> tuple[str, int]:
     raise NotImplementedError
