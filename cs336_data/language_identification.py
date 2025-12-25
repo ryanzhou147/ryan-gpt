@@ -1,6 +1,5 @@
 import fasttext
 from cs336_data.extract_data import extract_texts_from_warc
-from fastwarc.warc import ArchiveIterator, WarcRecordType
 
 model_path = "lid.176.bin"
 model = fasttext.load_model(model_path)

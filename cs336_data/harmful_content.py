@@ -10,6 +10,12 @@ def classify_nsfw(string: str) -> tuple[str, float]:
     score = scores[0]
     return (label, score)
 
+model_path_hatespeech = "jigsaw_fasttext_bigrams_hatespeech_final.bin"
+model_hatespeech = fasttext.load_model(model_path_hatespeech)
 
-# model_path_hatespeech = "jigsaw_fasttext_bigrams_hatespeech_final.bin"
-# model_hatespeech = fasttext.load_model(model_path_hatespeech)
+def classify_hatespeech(string: str) -> tuple[str, float]:
+    string = string.replace('\n', ' ')
+    labels, scores = model_hatespeech.predict(string, k=1)
+    label = labels[0].replace('__label__', '')
+    score = scores[0]
+    return (label, score)
