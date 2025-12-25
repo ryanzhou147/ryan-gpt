@@ -1,14 +1,6 @@
-# Write a function that will take a Unicode string and identify the main language that is present
-# in this string. Your function should return a pair, containing an identifier of the language and a
-# score between 0 and 1 representing its confidence in that prediction.
-# Deliverable: A function that performs language identification, giving its top language prediction
-# and a score. Implement the adapter [run_identify_language] and make sure it passes both
-# tests in uv run pytest -k test_identify_language . Note that these tests assume a particular
-# string identifier for English (“en”) and Chinese (“zh”), so your test adapter should perform any
-# applicable re-mapping, if necessary.
-
 import fasttext
-import os
+from cs336_data.extract_data import extract_texts_from_warc
+from fastwarc.warc import ArchiveIterator, WarcRecordType
 
 model_path = "lid.176.bin"
 model = fasttext.load_model(model_path)
@@ -21,8 +13,14 @@ def run_identify_language(text: str) -> tuple[str, float]:
     return (lang, score)
     
 if __name__ == "__main__":
-    sample_text_en = "This is a sample English text."
-    sample_text_zh = "这是一个中文示例文本。"
-    
-    print(run_identify_language(sample_text_en))  # Expected output: ('en', score)
-    print(run_identify_language(sample_text_zh))  # Expected output: ('zh', score)
+
+    warc_path = "CC-MAIN-20241201162023-20241201192023-00000.warc"
+    texts = []
+    texts = extract_texts_from_warc(warc_path)
+    for i in range(10):
+        print(f"{'='*60}")
+        print(f"Document {i+1}")
+        text = texts[i]
+        print(text[:100])
+        lang, score = run_identify_language(text)
+        print(f"\nPredicted Language: {lang} (Confidence: {score:.4f})")
