@@ -30,7 +30,8 @@ def run_classify_nsfw(text: str) -> tuple[Any, float]:
     return classify_nsfw(text)
 
 def run_classify_toxic_speech(text: str) -> tuple[Any, float]:
-    raise NotImplementedError
+    from cs336_data.harmful_content import classify_hatespeech
+    return classify_hatespeech(text)
 
 
 def run_classify_quality(text: str) -> tuple[Any, float]:
