@@ -1,13 +1,8 @@
-#!/usr/bin/env python3
-"""
-GPT Training Script
-Supports BPE tokenization, pretraining, fine-tuning, and generation.
-"""
-
 import argparse
 import json
 import time
 from pathlib import Path
+from xml.parsers.expat import model
 
 import numpy as np
 import torch
@@ -234,9 +229,13 @@ def finetune(args):
     logger = Logger(project=args.project, name=output_dir.name, config=vars(args))
 
     # Data
-    train_data = np.load(args.train_data, mmap_mode='r')
+    # Support multiple training sources for on-the-fly mixing: comma-separated paths
+    train_paths = [p.strip() for p in args.train_data.split(',')]
+    train_datasets = [np.load(p, mmap_mode='r') for p in train_paths]
     val_data = np.load(args.val_data, mmap_mode='r') if args.val_data else None
-    print(f"Train: {len(train_data):,} tokens")
+    total_tokens = sum(len(d) for d in train_datasets)
+    print(f"Train sources: {train_paths}")
+    print(f"Total train tokens: {total_tokens:,} tokens")
     if val_data is not None:
         print(f"Val: {len(val_data):,} tokens")
 
@@ -255,7 +254,7 @@ def finetune(args):
     # Load pretrained weights
     print(f"Loading pretrained checkpoint: {args.checkpoint}")
     checkpoint = torch.load(args.checkpoint, map_location=device)
-    model.load_state_dict(checkpoint['model'], strict=False)
+    model.load_state_dict(checkpoint['model_state_dict'], strict=False)
     
     num_params = sum(p.numel() for p in model.parameters())
     print(f"Parameters: {num_params:,}")
@@ -273,12 +272,30 @@ def finetune(args):
     model.train()
     loss_fn = CrossEntropyLoss()
     
+    # Prepare mixing probabilities for multiple datasets (if provided)
+    if len(train_datasets) > 1:
+        if args.mix:
+            try:
+                probs = [float(x) for x in args.mix.split(',')]
+                assert len(probs) == len(train_datasets)
+                probs = np.array(probs, dtype=float)
+                probs = probs / probs.sum()
+            except Exception:
+                print("Invalid --mix format; falling back to uniform mixing.")
+                probs = np.ones(len(train_datasets), dtype=float) / len(train_datasets)
+        else:
+            probs = np.ones(len(train_datasets), dtype=float) / len(train_datasets)
+    else:
+        probs = np.array([1.0], dtype=float)
+
     for step in range(args.max_steps + 1):
         lr = learning_rate_schedule(step, args.lr, args.min_lr, args.warmup_steps, args.max_steps)
         for pg in optimizer.param_groups:
             pg['lr'] = lr
 
-        x, y = get_batch(train_data, args.batch_size, args.context_length, device)
+        # Sample which dataset to draw this batch from according to probs
+        ds_idx = int(np.random.choice(len(train_datasets), p=probs))
+        x, y = get_batch(train_datasets[ds_idx], args.batch_size, args.context_length, device)
         
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             logits = model(x)
@@ -326,167 +343,6 @@ def finetune(args):
     print("Fine-tuning done.")
 
 
-# =============================================================================
-# Generation / Chat
-# =============================================================================
-
-def generate(args):
-    """Generate text interactively from a trained model."""
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device: {device}")
-    
-    # Load tokenizer
-    from ryan_gpt_basics.tokenizer.bpe_tokenizer import BPEProcessor
-    
-    vocab_path = Path(args.tokenizer_dir) / "vocab.json"
-    merges_path = Path(args.tokenizer_dir) / "merges.txt"
-    special_tokens = ["<|endoftext|>", "<|user|>", "<|assistant|>"]
-    
-    tokenizer = BPEProcessor.from_files(str(vocab_path), str(merges_path), special_tokens)
-    
-    # Get special token IDs
-    end_token_id = tokenizer.encode("<|endoftext|>")[0]
-    
-    # Load model
-    model = TransformerLM(
-        vocab_size=args.vocab_size,
-        context_length=args.context_length,
-        num_layers=args.num_layers,
-        d_model=args.d_model,
-        num_heads=args.num_heads,
-        d_ff=args.d_ff,
-        with_rope=True,
-        rope_theta=args.rope_theta,
-    ).to(device)
-    
-    print(f"Loading checkpoint: {args.checkpoint}")
-    checkpoint = torch.load(args.checkpoint, map_location=device)
-    model.load_state_dict(checkpoint['model'])
-    model.eval()
-    
-    print("\n" + "=" * 50)
-    print("Chat with your model! (type 'quit' to exit)")
-    print("=" * 50 + "\n")
-    
-    while True:
-        try:
-            user_input = input("You: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\nGoodbye!")
-            break
-            
-        if user_input.lower() in ['quit', 'exit', 'q']:
-            print("Goodbye!")
-            break
-        
-        if not user_input:
-            continue
-        
-        # Format prompt for conversation
-        prompt = f"<|user|>\n{user_input}\n<|assistant|>\n"
-        tokens = tokenizer.encode(prompt)
-        tokens = torch.tensor(tokens, dtype=torch.long).unsqueeze(0).to(device)
-        
-        # Generate
-        generated_tokens = []
-        with torch.no_grad():
-            for _ in range(args.max_new_tokens):
-                # Only use last context_length tokens
-                input_tokens = tokens[:, -args.context_length:]
-                
-                logits = model(input_tokens)
-                logits = logits[:, -1, :] / args.temperature
-                
-                # Top-p (nucleus) sampling
-                sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-                probs = torch.softmax(sorted_logits, dim=-1)
-                cumsum = torch.cumsum(probs, dim=-1)
-                
-                # Remove tokens with cumulative probability above top_p
-                mask = cumsum - probs > args.top_p
-                sorted_logits[mask] = float('-inf')
-                probs = torch.softmax(sorted_logits, dim=-1)
-                
-                # Sample
-                next_token_idx = torch.multinomial(probs[0], 1)
-                next_token = sorted_indices[0, next_token_idx]
-                
-                # Append to sequence
-                tokens = torch.cat([tokens, next_token.unsqueeze(0)], dim=1)
-                generated_tokens.append(next_token.item())
-                
-                # Stop at end token
-                if next_token.item() == end_token_id:
-                    break
-        
-        # Decode response
-        response = tokenizer.decode(generated_tokens)
-        response = response.replace("<|endoftext|>", "").strip()
-        
-        print(f"Bot: {response}\n")
-
-
-def generate_text(args):
-    """Generate text from a prompt (non-interactive)."""
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    # Load tokenizer
-    from ryan_gpt_basics.tokenizer.bpe_tokenizer import BPEProcessor
-    
-    vocab_path = Path(args.tokenizer_dir) / "vocab.json"
-    merges_path = Path(args.tokenizer_dir) / "merges.txt"
-    special_tokens = ["<|endoftext|>", "<|user|>", "<|assistant|>"]
-    
-    tokenizer = BPEProcessor.from_files(str(vocab_path), str(merges_path), special_tokens)
-    end_token_id = tokenizer.encode("<|endoftext|>")[0]
-    
-    # Load model
-    model = TransformerLM(
-        vocab_size=args.vocab_size,
-        context_length=args.context_length,
-        num_layers=args.num_layers,
-        d_model=args.d_model,
-        num_heads=args.num_heads,
-        d_ff=args.d_ff,
-        with_rope=True,
-        rope_theta=args.rope_theta,
-    ).to(device)
-    
-    checkpoint = torch.load(args.checkpoint, map_location=device)
-    model.load_state_dict(checkpoint['model'])
-    model.eval()
-    
-    # Tokenize prompt
-    tokens = tokenizer.encode(args.prompt)
-    tokens = torch.tensor(tokens, dtype=torch.long).unsqueeze(0).to(device)
-    
-    print(f"Prompt: {args.prompt}")
-    print("-" * 50)
-    
-    # Generate
-    with torch.no_grad():
-        for _ in range(args.max_new_tokens):
-            input_tokens = tokens[:, -args.context_length:]
-            logits = model(input_tokens)
-            logits = logits[:, -1, :] / args.temperature
-            
-            sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-            probs = torch.softmax(sorted_logits, dim=-1)
-            cumsum = torch.cumsum(probs, dim=-1)
-            mask = cumsum - probs > args.top_p
-            sorted_logits[mask] = float('-inf')
-            probs = torch.softmax(sorted_logits, dim=-1)
-            
-            next_token_idx = torch.multinomial(probs[0], 1)
-            next_token = sorted_indices[0, next_token_idx]
-            tokens = torch.cat([tokens, next_token.unsqueeze(0)], dim=1)
-            
-            if next_token.item() == end_token_id:
-                break
-    
-    # Decode full output
-    output = tokenizer.decode(tokens[0].tolist())
-    print(output)
 
 
 # =============================================================================
@@ -553,7 +409,7 @@ def main():
     # Fine-tune
     # -------------------------------------------------------------------------
     ft = subparsers.add_parser("finetune", help="Fine-tune a pretrained model")
-    ft.add_argument("--train_data", required=True, help="Path to training .npy file")
+    ft.add_argument("--train_data", required=True, help="Path(s) to training .npy file(s). For multiple files, separate with commas")
     ft.add_argument("--val_data", default=None, help="Path to validation .npy file")
     ft.add_argument("--output_dir", required=True, help="Output directory for checkpoints")
     ft.add_argument("--checkpoint", required=True, help="Pretrained checkpoint to load")
@@ -584,41 +440,7 @@ def main():
     ft.add_argument("--eval_interval", type=int, default=250)
     ft.add_argument("--eval_steps", type=int, default=20)
     ft.add_argument("--save_interval", type=int, default=1000)
-
-    # -------------------------------------------------------------------------
-    # Generate (Interactive Chat)
-    # -------------------------------------------------------------------------
-    gen = subparsers.add_parser("chat", help="Interactive chat with the model")
-    gen.add_argument("--checkpoint", required=True, help="Model checkpoint to load")
-    gen.add_argument("--tokenizer_dir", required=True, help="Directory with vocab.json and merges.txt")
-    gen.add_argument("--vocab_size", type=int, required=True)
-    gen.add_argument("--context_length", type=int, default=256)
-    gen.add_argument("--num_layers", type=int, default=4)
-    gen.add_argument("--d_model", type=int, default=512)
-    gen.add_argument("--num_heads", type=int, default=8)
-    gen.add_argument("--d_ff", type=int, default=1344)
-    gen.add_argument("--rope_theta", type=float, default=10000.0)
-    gen.add_argument("--max_new_tokens", type=int, default=100)
-    gen.add_argument("--temperature", type=float, default=0.7)
-    gen.add_argument("--top_p", type=float, default=0.9)
-
-    # -------------------------------------------------------------------------
-    # Generate (Non-interactive)
-    # -------------------------------------------------------------------------
-    gentext = subparsers.add_parser("generate", help="Generate text from a prompt")
-    gentext.add_argument("--checkpoint", required=True, help="Model checkpoint to load")
-    gentext.add_argument("--tokenizer_dir", required=True, help="Directory with vocab.json and merges.txt")
-    gentext.add_argument("--prompt", required=True, help="Text prompt to complete")
-    gentext.add_argument("--vocab_size", type=int, required=True)
-    gentext.add_argument("--context_length", type=int, default=256)
-    gentext.add_argument("--num_layers", type=int, default=4)
-    gentext.add_argument("--d_model", type=int, default=512)
-    gentext.add_argument("--num_heads", type=int, default=8)
-    gentext.add_argument("--d_ff", type=int, default=1344)
-    gentext.add_argument("--rope_theta", type=float, default=10000.0)
-    gentext.add_argument("--max_new_tokens", type=int, default=100)
-    gentext.add_argument("--temperature", type=float, default=0.7)
-    gentext.add_argument("--top_p", type=float, default=0.9)
+    ft.add_argument("--mix", default=None, help="Comma-separated mixing proportions for multiple train_data files, e.g. '0.7,0.3' for two sources")
 
     # -------------------------------------------------------------------------
     # Parse and dispatch
@@ -633,12 +455,85 @@ def main():
         train(args)
     elif args.cmd == "finetune":
         finetune(args)
-    elif args.cmd == "chat":
-        generate(args)
-    elif args.cmd == "generate":
-        generate_text(args)
+    elif args.cmd == "flash_test":
+        flash_test(args)
+    # Generation functionality moved to `generate.py`.
     else:
         parser.print_help()
+
+
+def flash_test(args):
+    """Run small forward/backward tests for flash-attention (model-level and direct functions)."""
+    import torch
+    from ryan_gpt_basics.transformer.transformer import TransformerLM
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Running flash-attention test on device: {device}")
+
+    # Try importing direct flash functions
+    try:
+        from ryan_gpt_systems.flash_attention import flash_attention_triton, flash_attention_pytorch
+        triton_ok = True
+        print("Found flash_attention_triton and flash_attention_pytorch")
+    except Exception as e:
+        triton_ok = False
+        flash_attention_triton = None
+        flash_attention_pytorch = None
+        print("Flash attention functions not available:", e)
+
+    # Build a tiny model with use_flash=True
+    vocab_size = 100
+    seq_len = args.seq_len
+    batch = args.batch_size
+    num_heads = args.num_heads
+    d_model = args.d_model
+    num_layers = max(1, args.num_layers)
+
+    model = TransformerLM(
+        vocab_size=vocab_size,
+        context_length=seq_len,
+        num_layers=num_layers,
+        d_model=d_model,
+        num_heads=num_heads,
+        d_ff=max(d_model * 2, 4),
+        with_rope=False,
+        use_flash=True,
+    ).to(device)
+
+    model.train()
+
+    # Random input indices
+    input_ids = torch.randint(0, vocab_size, (batch, seq_len), device=device, dtype=torch.long)
+    logits = model(input_ids)
+    loss = logits.view(-1, logits.size(-1)).float().softmax(-1).mean()
+    loss.backward()
+    print("Model forward+backward completed (use_flash=True)")
+
+    # Direct flash function tests (if available)
+    if triton_ok:
+        head_dim = d_model // num_heads
+        b = batch * num_heads
+        Q = torch.randn(b, seq_len, head_dim, device=device, dtype=torch.float32, requires_grad=True)
+        K = torch.randn(b, seq_len, head_dim, device=device, dtype=torch.float32, requires_grad=True)
+        V = torch.randn(b, seq_len, head_dim, device=device, dtype=torch.float32, requires_grad=True)
+
+        # Triton implementation
+        try:
+            out_tr = flash_attention_triton(Q, K, V, is_causal=False)
+            out_tr.sum().backward()
+            print("Triton flash attention forward+backward succeeded")
+        except Exception as e:
+            print("Triton flash attention failed:", e)
+
+        # PyTorch reference implementation
+        try:
+            out_py = flash_attention_pytorch(Q, K, V, is_causal=False)
+            out_py.sum().backward()
+            print("PyTorch flash attention forward+backward succeeded")
+        except Exception as e:
+            print("PyTorch flash attention failed:", e)
+
+    print("Flash-attention test finished.")
 
 
 if __name__ == "__main__":
