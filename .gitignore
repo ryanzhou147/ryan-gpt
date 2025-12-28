@@ -5,6 +5,7 @@ nav
 tags
 data/
 .venv_editable_backups/
+wandb/
 
 *.warc.gz
 *.paths.gz
