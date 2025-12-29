@@ -352,7 +352,7 @@ def finetune(args):
                 model.train()
                 val_loss = sum(val_losses) / len(val_losses)
                 metrics["val_loss"] = val_loss
-                msg += f" | val {val_loss:.4f}"
+                msg += f" | val {val_loss:.4f} | diff {(val_loss - accum_loss):.4f}"
 
             logger.log(step, metrics)
             print(msg)
