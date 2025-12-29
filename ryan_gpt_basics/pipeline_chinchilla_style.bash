@@ -47,13 +47,14 @@ PYTHONPATH=. python ryan_gpt_basics/train.py train \
     --d_model 384 \
     --num_heads 6 \
     --d_ff 1536 \
-    --batch_size 64 \
+    --batch_size 32 \
+    --gradient_accumulation_steps 2 \
     --max_steps 40000 \
     --lr 6e-4 \
     --min_lr 6e-5 \
-    --warmup_steps 1000 \
+    --warmup_steps 1500 \
     --log_interval 100 \
-    --save_interval 5000
+    --save_interval 2500
 
 echo "=========================================="
 echo "STEP 4: Fine-tune on DailyDialog"
@@ -69,7 +70,8 @@ PYTHONPATH=. python ryan_gpt_basics/train.py finetune \
     --d_model 384 \
     --num_heads 6 \
     --d_ff 1536 \
-    --batch_size 64 \
+    --batch_size 32 \
+    --gradient_accumulation_steps 2 \
     --max_steps 2000 \
     --lr 3e-5 \
     --min_lr 1e-6 \
