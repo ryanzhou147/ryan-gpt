@@ -6,6 +6,7 @@ tags
 data/
 .venv_editable_backups/
 wandb/
+runs/
 
 *.warc.gz
 *.paths.gz
