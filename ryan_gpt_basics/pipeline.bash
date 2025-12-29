@@ -48,7 +48,7 @@ PYTHONPATH=. python ryan_gpt_basics/train.py train \
     --num_heads 8 \
     --d_ff 2048 \
     --batch_size 32 \
-    --max_steps 15000 \
+    --max_steps 30000 \
     --lr 3e-4 \
     --warmup_steps 1000 \
     --log_interval 100 \
