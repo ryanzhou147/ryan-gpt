@@ -73,6 +73,7 @@ def clean_article(text: str) -> str:
     
     return text.strip()
 
+
 def filter_article(text: str) -> bool:
     """Return True if article should be kept."""
     
@@ -85,7 +86,6 @@ def filter_article(text: str) -> bool:
     if bullet_lines / max(len(lines), 1) > 0.5:
         return False
     
-    # Faster ASCII check using encode
     try:
         ascii_ratio = len(text.encode('ascii', errors='ignore')) / max(len(text), 1)
         if ascii_ratio < 0.8:
@@ -104,20 +104,22 @@ def extract_wikipedia(
     use_article_filter: bool = True,
     use_wikiextractor: bool = True,
     processes: int = 10,
+    log_interval: int = 5000,
 ):
     """Extract and clean text from Wikipedia dump."""
     
     print(f"Extracting Wikipedia from {dump_path}...")
-    
-    # Namespace for this dump
-    NS = "{http://www.mediawiki.org/xml/export-0.11/}"
+    if max_articles:
+        print(f"Target: {max_articles:,} articles")
     
     article_count = 0
     skipped_count = 0
+    processed_count = 0  # Total articles processed (before filtering)
     
-    # Helper function to process a single article
     def process_article(title: str, text: str, f_out) -> bool:
-        nonlocal article_count, skipped_count
+        nonlocal article_count, skipped_count, processed_count
+        
+        processed_count += 1
         
         # Skip non-article pages
         if ':' in title:
@@ -144,8 +146,10 @@ def extract_wikipedia(
         
         article_count += 1
         
-        if article_count % 10000 == 0:
-            print(f"  Extracted {article_count} articles (skipped {skipped_count})...")
+        # Progress logging
+        if article_count % log_interval == 0:
+            pct = f" ({100*article_count/max_articles:.1f}%)" if max_articles else ""
+            print(f"  Extracted: {article_count:,}{pct} | Skipped: {skipped_count:,} | Processed: {processed_count:,}")
         
         return True
     
@@ -167,10 +171,12 @@ def extract_wikipedia(
                 print('WikiExtractor failed, falling back to XML parser:', e)
                 shutil.rmtree(tempdir, ignore_errors=True)
                 wikiex_failed = True
+            
             if not wikiex_failed:
+                print("Processing extracted articles...")
                 with open(output_path, 'w', encoding='utf-8') as f_out:
                     for root, _, files in os.walk(tempdir):
-                        for fname in sorted(files):  # sorted for deterministic order
+                        for fname in sorted(files):
                             fpath = os.path.join(root, fname)
                             with open(fpath, 'r', encoding='utf-8') as fh:
                                 for line in fh:
@@ -185,10 +191,20 @@ def extract_wikipedia(
                                     process_article(title, text, f_out)
                                     
                                     if max_articles and article_count >= max_articles:
-                                        print(f"Extracted {article_count} articles (skipped {skipped_count}) to {output_path}")
+                                        print(f"\n{'='*50}")
+                                        print(f"DONE: Extracted {article_count:,} articles")
+                                        print(f"      Skipped {skipped_count:,} articles")
+                                        print(f"      Processed {processed_count:,} total")
+                                        print(f"      Output: {output_path}")
+                                        print(f"{'='*50}")
                                         return output_path
                 
-                print(f"Extracted {article_count} articles (skipped {skipped_count}) to {output_path}")
+                print(f"\n{'='*50}")
+                print(f"DONE: Extracted {article_count:,} articles")
+                print(f"      Skipped {skipped_count:,} articles")
+                print(f"      Processed {processed_count:,} total")
+                print(f"      Output: {output_path}")
+                print(f"{'='*50}")
                 return output_path
         
         finally:
@@ -197,11 +213,23 @@ def extract_wikipedia(
             except Exception:
                 pass
 
+
 if __name__ == "__main__":
-    dump_path = download_wikipedia()
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Extract Wikipedia articles")
+    parser.add_argument("--max_articles", type=int, default=None, help="Max articles to extract")
+    parser.add_argument("--min_length", type=int, default=200, help="Min article length in chars")
+    parser.add_argument("--output_dir", default="data/wikipedia", help="Output directory")
+    parser.add_argument("--log_interval", type=int, default=5000, help="Log progress every N articles")
+    args = parser.parse_args()
+    
+    dump_path = download_wikipedia(output_dir=args.output_dir)
     extract_wikipedia(
         dump_path,
-        max_articles=20000,
-        min_length=200,
+        output_path=f"{args.output_dir}/wiki_text.txt",
+        max_articles=args.max_articles,
+        min_length=args.min_length,
         use_article_filter=True,
+        log_interval=args.log_interval,
     )
