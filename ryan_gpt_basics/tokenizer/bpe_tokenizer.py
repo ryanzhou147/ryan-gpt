@@ -3,6 +3,7 @@ import regex as re
 import json
 from typing import Dict, List, Tuple, Iterable, Iterator, Union
 from functools import lru_cache
+from time import time
 from ryan_gpt_basics.tokenizer.pretokenizer import PreTokenizer
 
 
@@ -301,24 +302,40 @@ class BPEProcessor:
     def run_bpe(self, num_merges: int) -> None:
         """Run BPE training for num_merges iterations."""
         self._build_pair_frequencies()  # Build once at start
+        start_time = time()
         for merge_num in range(num_merges):
             if merge_num % 100 == 0:
-                print(f"Merge {merge_num}/{num_merges}, vocab size: {len(self.vocab)}")
-            
+                elapsed = time() - start_time
+                merges_done = merge_num
+                if elapsed > 0 and merges_done > 0:
+                    rate = merges_done / elapsed  # merges per second
+                    remaining = max(0, num_merges - merge_num)
+                    eta_seconds = remaining / rate if rate > 0 else None
+                else:
+                    eta_seconds = None
+
+                if eta_seconds is None:
+                    eta_str = ""
+                else: 
+                    m = (int(eta_seconds) // 60)
+                    eta_str = f"{m:.1f}m"
+
+                print(f"Merge {merge_num}/{num_merges} | vocab size: {len(self.vocab)} | ETA: {eta_str}")
+
             best_pair = self._select_best_pair()
             if best_pair is None:
                 break
-            
+
             left_id, right_id = best_pair
             self.vocab_index += 1
             new_id = self.vocab_index
-            
+
             left_bytes = self.vocab[left_id]
             right_bytes = self.vocab[right_id]
             self.vocab[new_id] = left_bytes + right_bytes
             self.merges.append((left_bytes, right_bytes))
             self.merges_dict[(left_bytes, right_bytes)] = len(self.merges) - 1
-            
+
             # Incrementally update frequencies (no full rebuild!)
             self._apply_merge_to_sequences(left_id, right_id, new_id)
 
