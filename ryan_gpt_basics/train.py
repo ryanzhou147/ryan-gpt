@@ -140,6 +140,11 @@ def train(args):
     
     num_params = sum(p.numel() for p in model.parameters())
     print(f"Parameters: {num_params:,}")
+    
+    # Gradient accumulation info
+    grad_accum = args.gradient_accumulation_steps
+    effective_batch = args.batch_size * grad_accum
+    print(f"Batch size: {args.batch_size} x {grad_accum} accumulation = {effective_batch} effective")
 
     optimizer = AdamW(
         model.parameters(),
@@ -163,14 +168,21 @@ def train(args):
         for pg in optimizer.param_groups:
             pg['lr'] = lr
 
-        x, y = get_batch(train_data, args.batch_size, args.context_length, device)
-        
-        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-            logits = model(x)
-            loss = loss_fn.forward(logits.reshape(-1, logits.size(-1)), y.reshape(-1))
-
+        # Gradient accumulation loop
         optimizer.zero_grad()
-        loss.backward()
+        accum_loss = 0.0
+        
+        for micro_step in range(grad_accum):
+            x, y = get_batch(train_data, args.batch_size, args.context_length, device)
+            
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                logits = model(x)
+                loss = loss_fn.forward(logits.reshape(-1, logits.size(-1)), y.reshape(-1))
+                loss = loss / grad_accum  # Scale loss for accumulation
+            
+            loss.backward()
+            accum_loss += loss.item()
+        
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
         optimizer.step()
 
@@ -178,13 +190,13 @@ def train(args):
         if step % args.log_interval == 0:
             elapsed = logger.elapsed_time()
             iters_done = step - start_iter
-            msg = f"step {step} | loss {loss.item():.4f} | lr {lr:.2e} | {elapsed:.0f}s"
+            msg = f"step {step} | loss {accum_loss:.4f} | lr {lr:.2e} | {elapsed:.0f}s"
             
             if iters_done > 0:
                 eta = (args.max_steps - step) * elapsed / iters_done / 60
                 msg += f" | ETA {eta:.1f}m"
 
-            metrics = {"loss": loss.item(), "lr": lr}
+            metrics = {"loss": accum_loss, "lr": lr}
 
             if val_data is not None and step % args.eval_interval == 0 and step > 0:
                 model.eval()
@@ -229,7 +241,6 @@ def finetune(args):
     logger = Logger(project=args.project, name=output_dir.name, config=vars(args))
 
     # Data
-    # Support multiple training sources for on-the-fly mixing: comma-separated paths
     train_paths = [p.strip() for p in args.train_data.split(',')]
     train_datasets = [np.load(p, mmap_mode='r') for p in train_paths]
     val_data = np.load(args.val_data, mmap_mode='r') if args.val_data else None
@@ -259,6 +270,11 @@ def finetune(args):
     num_params = sum(p.numel() for p in model.parameters())
     print(f"Parameters: {num_params:,}")
 
+    # Gradient accumulation info
+    grad_accum = args.gradient_accumulation_steps
+    effective_batch = args.batch_size * grad_accum
+    print(f"Batch size: {args.batch_size} x {grad_accum} accumulation = {effective_batch} effective")
+
     # Fresh optimizer for fine-tuning
     optimizer = AdamW(
         model.parameters(),
@@ -272,7 +288,7 @@ def finetune(args):
     model.train()
     loss_fn = CrossEntropyLoss()
     
-    # Prepare mixing probabilities for multiple datasets (if provided)
+    # Prepare mixing probabilities for multiple datasets
     if len(train_datasets) > 1:
         if args.mix:
             try:
@@ -293,29 +309,35 @@ def finetune(args):
         for pg in optimizer.param_groups:
             pg['lr'] = lr
 
-        # Sample which dataset to draw this batch from according to probs
-        ds_idx = int(np.random.choice(len(train_datasets), p=probs))
-        x, y = get_batch(train_datasets[ds_idx], args.batch_size, args.context_length, device)
-        
-        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-            logits = model(x)
-            loss = loss_fn.forward(logits.reshape(-1, logits.size(-1)), y.reshape(-1))
-
+        # Gradient accumulation loop
         optimizer.zero_grad()
-        loss.backward()
+        accum_loss = 0.0
+        
+        for micro_step in range(grad_accum):
+            ds_idx = int(np.random.choice(len(train_datasets), p=probs))
+            x, y = get_batch(train_datasets[ds_idx], args.batch_size, args.context_length, device)
+            
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                logits = model(x)
+                loss = loss_fn.forward(logits.reshape(-1, logits.size(-1)), y.reshape(-1))
+                loss = loss / grad_accum  # Scale loss for accumulation
+            
+            loss.backward()
+            accum_loss += loss.item()
+        
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
         optimizer.step()
 
         # Log
         if step % args.log_interval == 0:
             elapsed = logger.elapsed_time()
-            msg = f"step {step} | loss {loss.item():.4f} | lr {lr:.2e} | {elapsed:.0f}s"
+            msg = f"step {step} | loss {accum_loss:.4f} | lr {lr:.2e} | {elapsed:.0f}s"
             
             if step > 0:
                 eta = (args.max_steps - step) * elapsed / step / 60
                 msg += f" | ETA {eta:.1f}m"
 
-            metrics = {"loss": loss.item(), "lr": lr}
+            metrics = {"loss": accum_loss, "lr": lr}
 
             if val_data is not None and step % args.eval_interval == 0 and step > 0:
                 model.eval()
@@ -395,6 +417,7 @@ def main():
     tr.add_argument("--warmup_steps", type=int, default=1000)
     tr.add_argument("--max_steps", type=int, default=20000)
     tr.add_argument("--batch_size", type=int, default=64)
+    tr.add_argument("--gradient_accumulation_steps", type=int, default=1)
     tr.add_argument("--seed", type=int, default=42)
     # Logging
     tr.add_argument("--log_interval", type=int, default=100)
@@ -432,13 +455,14 @@ def main():
     ft.add_argument("--warmup_steps", type=int, default=100)
     ft.add_argument("--max_steps", type=int, default=5000)
     ft.add_argument("--batch_size", type=int, default=32)
+    ft.add_argument("--gradient_accumulation_steps", type=int, default=1)
     ft.add_argument("--seed", type=int, default=42)
     # Logging
     ft.add_argument("--log_interval", type=int, default=50)
     ft.add_argument("--eval_interval", type=int, default=250)
     ft.add_argument("--eval_steps", type=int, default=20)
     ft.add_argument("--save_interval", type=int, default=1000)
-    ft.add_argument("--mix", default=None, help="Comma-separated mixing proportions for multiple train_data files, e.g. '0.7,0.3' for two sources")
+    ft.add_argument("--mix", default=None, help="Comma-separated mixing proportions for multiple train_data files")
 
     # -------------------------------------------------------------------------
     # Parse and dispatch
@@ -453,85 +477,8 @@ def main():
         train(args)
     elif args.cmd == "finetune":
         finetune(args)
-    elif args.cmd == "flash_test":
-        flash_test(args)
-    # Generation functionality moved to `generate.py`.
     else:
         parser.print_help()
-
-
-def flash_test(args):
-    """Run small forward/backward tests for flash-attention (model-level and direct functions)."""
-    import torch
-    from ryan_gpt_basics.transformer.transformer import TransformerLM
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Running flash-attention test on device: {device}")
-
-    # Try importing direct flash functions
-    try:
-        from ryan_gpt_systems.flash_attention import flash_attention_triton, flash_attention_pytorch
-        triton_ok = True
-        print("Found flash_attention_triton and flash_attention_pytorch")
-    except Exception as e:
-        triton_ok = False
-        flash_attention_triton = None
-        flash_attention_pytorch = None
-        print("Flash attention functions not available:", e)
-
-    # Build a tiny model with use_flash=True
-    vocab_size = 100
-    seq_len = args.seq_len
-    batch = args.batch_size
-    num_heads = args.num_heads
-    d_model = args.d_model
-    num_layers = max(1, args.num_layers)
-
-    model = TransformerLM(
-        vocab_size=vocab_size,
-        context_length=seq_len,
-        num_layers=num_layers,
-        d_model=d_model,
-        num_heads=num_heads,
-        d_ff=max(d_model * 2, 4),
-        with_rope=False,
-        use_flash=True,
-    ).to(device)
-
-    model.train()
-
-    # Random input indices
-    input_ids = torch.randint(0, vocab_size, (batch, seq_len), device=device, dtype=torch.long)
-    logits = model(input_ids)
-    loss = logits.view(-1, logits.size(-1)).float().softmax(-1).mean()
-    loss.backward()
-    print("Model forward+backward completed (use_flash=True)")
-
-    # Direct flash function tests (if available)
-    if triton_ok:
-        head_dim = d_model // num_heads
-        b = batch * num_heads
-        Q = torch.randn(b, seq_len, head_dim, device=device, dtype=torch.float32, requires_grad=True)
-        K = torch.randn(b, seq_len, head_dim, device=device, dtype=torch.float32, requires_grad=True)
-        V = torch.randn(b, seq_len, head_dim, device=device, dtype=torch.float32, requires_grad=True)
-
-        # Triton implementation
-        try:
-            out_tr = flash_attention_triton(Q, K, V, is_causal=False)
-            out_tr.sum().backward()
-            print("Triton flash attention forward+backward succeeded")
-        except Exception as e:
-            print("Triton flash attention failed:", e)
-
-        # PyTorch reference implementation
-        try:
-            out_py = flash_attention_pytorch(Q, K, V, is_causal=False)
-            out_py.sum().backward()
-            print("PyTorch flash attention forward+backward succeeded")
-        except Exception as e:
-            print("PyTorch flash attention failed:", e)
-
-    print("Flash-attention test finished.")
 
 
 if __name__ == "__main__":
