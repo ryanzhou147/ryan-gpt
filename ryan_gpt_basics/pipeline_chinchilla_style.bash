@@ -5,7 +5,6 @@ cd ~/Downloads/ryan-gpt
 echo "=========================================="
 echo "STEP 1: Tokenize Combined Data"
 echo "=========================================="
-rm -rf data/tokenized
 rm -f data/dailydialog/*.npy
 
 PYTHONPATH=. python ryan_gpt_basics/train.py tokenize \

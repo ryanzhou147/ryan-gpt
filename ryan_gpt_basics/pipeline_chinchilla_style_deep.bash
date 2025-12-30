@@ -7,15 +7,16 @@ echo "STEP 1: Pretrain (~3-4 hours)"
 echo "=========================================="
 PYTHONPATH=. python ryan_gpt_basics/train.py train \
     --train_data data/tokenized/all_text.npy \
-    --output_dir runs/pretrain_chinchilla_style \
+    --output_dir runs/pretrain_chinchilla_style_deep \
     --vocab_size 16000 \
     --context_length 512 \
     --num_layers 6 \
     --d_model 320 \
     --num_heads 5 \
     --d_ff 1280 \
-    --batch_size 64 \
-    --max_steps 40000 \
+    --batch_size 32 \
+    --gradient_accumulation_steps 2 \
+    --max_steps 50000 \
     --lr 6e-4 \
     --min_lr 6e-5 \
     --warmup_steps 1000 \
@@ -28,15 +29,16 @@ echo "=========================================="
 PYTHONPATH=. python ryan_gpt_basics/train.py finetune \
     --train_data data/dailydialog/train.npy \
     --val_data data/dailydialog/val.npy \
-    --checkpoint runs/pretrain_chinchilla_style/checkpoints/ckpt_final.pt \
-    --output_dir runs/finetune_chinchilla_style \
+    --checkpoint runs/pretrain_chinchilla_style_deep/checkpoints/ckpt_final.pt \
+    --output_dir runs/finetune_chinchilla_style_deep \
     --vocab_size 16000 \
     --context_length 512 \
     --num_layers 6 \
     --d_model 320 \
     --num_heads 5 \
     --d_ff 1280 \
-    --batch_size 64 \
+    --batch_size 32 \
+    --gradient_accumulation_steps 2 \
     --max_steps 2000 \
     --lr 3e-5 \
     --min_lr 3e-6 \
