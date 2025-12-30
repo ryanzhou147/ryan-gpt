@@ -91,9 +91,9 @@ def extract_dailydialog(
                 formatted = ""
                 for i, turn in enumerate(utterances):
                     if i % 2 == 0:
-                        formatted += f"<|user|>\n{turn}"
+                        formatted += f"<|user|>\n{turn}\n"
                     else:
-                        formatted += f"<|assistant|>\n{turn}"
+                        formatted += f"<|assistant|>\n{turn}\n"
                 
                 formatted += "<|endoftext|>\n"
                 f_out.write(formatted)
