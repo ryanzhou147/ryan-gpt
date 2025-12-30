@@ -161,18 +161,21 @@ def train(args):
     if args.resume:
         start_iter, lr_config = load_checkpoint(args.resume, model, optimizer)
         print(f"Resumed from iter {start_iter}")
+        torch.manual_seed(args.seed + start_iter)
+        np.random.seed(args.seed + start_iter)
         if lr_config:
             print(f"Restored LR config: max_lr={lr_config['max_lr']:.2e}, min_lr={lr_config['min_lr']:.2e}, max_steps={lr_config['max_steps']}")
     
-    # Use saved LR config if resuming, otherwise use defaults
+    # Use saved LR config if resuming, other use inputs
     if lr_config is None:
         lr_config = {
-            'max_lr': 6e-4,
-            'min_lr': 6e-5,
-            'warmup_steps': 1500,
-            'max_steps': 40000,
+            'max_lr': args.lr,
+            'min_lr': args.min_lr,
+            'warmup_steps': args.warmup_steps,
+            'max_steps': args.max_steps,
         }
-        print(f"No lr_config in checkpoint, using defaults")
+        if args.resume:
+            print(f"No lr_config in checkpoint, using defaults")
 
     # Train
     model.train()
