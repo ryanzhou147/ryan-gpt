@@ -8,6 +8,7 @@ data/
 wandb/
 runs/
 
+models/
 *.warc.gz
 *.paths.gz
 *.warc
