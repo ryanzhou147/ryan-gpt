@@ -117,3 +117,7 @@ python ryan_gpt_basics/train.py finetune \
 cp runs/finetune/checkpoints/ckpt_final.pt models/finetune/ckpt_final.pt
 python webapp/app.py
 ```
+
+## Acknowledgments
+
+Project inspired by Stanford's [CS336: Language Modeling from Scratch](https://stanford-cs336.github.io/spring2024/). Implementation, training pipeline, and model are my own.
