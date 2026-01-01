@@ -30,10 +30,14 @@ def clean_text(text: str) -> str:
     text = text.replace('<|user|>', '')
     text = text.replace('<|assistant|>', '')
     
+    # Normalize curly apostrophes to straight
+    text = text.replace(''', "'")
+    text = text.replace(''', "'")
+    
     # Fix contractions: "I ' m" -> "I'm"
-    text = re.sub(r"(\w)\s+'\s+(\w)", r"\1'\2", text)
-    text = re.sub(r"(\w)\s+'(\w)", r"\1'\2", text)
-    text = re.sub(r"(\w)'\s+(\w)", r"\1'\2", text)
+    text = re.sub(r"(\w) ' (\w)", r"\1'\2", text)
+    text = re.sub(r"(\w) '(\w)", r"\1'\2", text)
+    text = re.sub(r"(\w)' (\w)", r"\1'\2", text)
     
     # Fix spacing around punctuation
     text = re.sub(r"\s+([.,!?;:])", r"\1", text)
