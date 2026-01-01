@@ -140,73 +140,64 @@ def decode(
     temperature: float = 1.0,
     top_p: float | None = None,
     banned_token_ids: list[int] | torch.Tensor | None = None,
+    min_new_tokens: int = 0,
 ) -> torch.Tensor:
-    """
-    Decode text from a language model.
-    
-    Args:
-        model: Language model that outputs logits of shape [batch, seq, vocab]
-        prompt_ids: Input token IDs of shape [seq_len] or [batch, seq_len]
-        max_new_tokens: Maximum number of new tokens to decode
-        context_length: Maximum context length the model supports
-        eos_token_id: If provided, stop generation when this token is produced
-        temperature: Temperature for softmax scaling (lower = more deterministic)
-        top_p: Nucleus sampling threshold (if provided, sample from smallest set with cumulative prob >= top_p)
-    
-    Returns:
-        Generated token IDs including the prompt
-    """
-    # Handle 1D input
     if prompt_ids.dim() == 1:
         prompt_ids = prompt_ids.unsqueeze(0)
     
     generated = prompt_ids.clone()
-    for _ in range(max_new_tokens):
-        # Truncate to context length
+    new_tokens = []
+    
+    for i in range(max_new_tokens):
         input_ids = generated[:, -context_length:]
+        logits = model(input_ids)[:, -1, :]
         
-        # Get logits for last position
-        logits = model(input_ids)[:, -1, :]  # [batch, vocab]
-        
-        # Temperature scaling
         if temperature != 1.0:
             logits = logits / temperature
 
-        # Mask any banned tokens by setting their logits very low
         if banned_token_ids is not None:
             try:
                 if isinstance(banned_token_ids, torch.Tensor):
                     banned = banned_token_ids.to(logits.device)
                 else:
                     banned = torch.tensor(banned_token_ids, device=logits.device, dtype=torch.long)
-                # scatter to set logits[:, banned] = -1e9
                 logits.scatter_(1, banned.unsqueeze(0).expand(logits.size(0), -1), -1e9)
             except Exception:
                 for bid in (banned_token_ids if not isinstance(banned_token_ids, torch.Tensor) else banned_token_ids.tolist()):
                     logits[:, bid] = -1e9
 
-        # Convert to probabilities
+        if i < min_new_tokens and eos_token_id is not None:
+            logits[:, eos_token_id] = -1e9
+
         probs = softmax(logits, dim=-1)
         
-        # Top-p (nucleus) sampling
         if top_p is not None:
             sorted_probs, sorted_indices = torch.sort(probs, dim=-1, descending=True)
             cumsum_probs = torch.cumsum(sorted_probs, dim=-1)
-            # Find cutoff: smallest set where cumsum >= top_p
             mask = cumsum_probs - sorted_probs > top_p
             sorted_probs[mask] = 0.0
-            # Renormalize
             sorted_probs = sorted_probs / sorted_probs.sum(dim=-1, keepdim=True)
-            # Sample from sorted distribution then map back
             next_token = torch.multinomial(sorted_probs, num_samples=1)
             next_token = torch.gather(sorted_indices, -1, next_token)
         else:
             next_token = torch.multinomial(probs, num_samples=1)
         
         generated = torch.cat([generated, next_token], dim=1)
+        new_tokens.append(next_token.item())
         
-        # Stop if EOS
+        # Stop on EOS
         if eos_token_id is not None and (next_token == eos_token_id).all():
             break
+        
+        # Repetition detection: check for repeated n-grams
+        if len(new_tokens) >= 12:
+            for n in [3, 4, 5, 6]:
+                if len(new_tokens) >= n * 3:
+                    last = tuple(new_tokens[-n:])
+                    prev = tuple(new_tokens[-2*n:-n])
+                    prev_prev = tuple(new_tokens[-3*n:-2*n])
+                    if last == prev == prev_prev:
+                        generated = generated[:, :-(2*n)]
+                        return generated.squeeze(0) if prompt_ids.size(0) == 1 else generated
     
     return generated.squeeze(0) if prompt_ids.size(0) == 1 else generated
