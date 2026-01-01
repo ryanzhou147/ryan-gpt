@@ -11,26 +11,26 @@
 
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
     <script>
-    const { createApp, ref, reactive, onMounted } = Vue;
+    const { createApp, ref, reactive, onMounted, watch } = Vue;
 
     const App = {
       template: `
       <div class="app">
         <header class="topbar">
           <h1>RyanGPT</h1>
-            <div class="controls">
-              <label class="switch-label">Model
-                <select v-model="selected_model">
-                  <option v-for="m in models" :key="m.id" :value="m.checkpoint">{{ m.label }}</option>
-                </select>
-              </label>
-              <label class="switch-label">Temp
-                <input v-model.number="temperature" @blur="onTempBlur" type="number" min="0.01" max="0.99" style="width:50px" />
-              </label>
-              <label class="switch-label">Min Tokens
-                <input v-model.number="min_tokens" @blur="onMinTokensBlur" type="number" min="10" max="140" style="width:50px" />
-              </label>
-            </div>
+          <div class="controls">
+            <label class="switch-label">Model
+              <select v-model="selected_model">
+                <option v-for="m in models" :key="m.id" :value="m.checkpoint">{{ m.label }}</option>
+              </select>
+            </label>
+            <label class="switch-label">Temp
+              <input v-model.number="temperature" @blur="onTempBlur" type="number" min="0.01" max="0.99" style="width:50px" />
+            </label>
+            <label class="switch-label">Min Tokens
+              <input v-model.number="min_tokens" @blur="onMinTokensBlur" type="number" min="10" max="140" style="width:50px" />
+            </label>
+          </div>
         </header>
 
         <main class="chat-container">
@@ -46,7 +46,6 @@
             <textarea id="prompt" v-model="prompt" placeholder="Send a message..." rows="2" style="width:800px"></textarea>
           <div class="composer-controls">
             <button @click="send" id="send" aria-label="Send">
-              <!-- up arrow icon -->
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
                 <path d="M12 19V5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                 <path d="M5 12l7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -61,30 +60,35 @@
         const selected_model = ref('');
         const prompt = ref('');
         const messages = reactive([]);
+        const min_tokens = ref(10);
         const temperature = ref(0.5);
-        const min_tokens = ref(5);
 
-        // clamp on blur handlers (only enforce when user leaves the input)
-        function onTempBlur(){
-          let val = parseFloat(temperature.value);
-          if (!isFinite(val)) val = 0.5;
-          if (val <= 0.0) val = 0.01;
-          if (val >= 1.0) val = 0.99;
-          if (val < 0.01) val = 0.01;
-          const rounded = Math.round(val * 100) / 100;
-          temperature.value = rounded;
+        // Watch for model changes and update min_tokens default
+        watch(selected_model, (newVal) => {
+          if (newVal.toLowerCase().includes('pretrain')) {
+            min_tokens.value = 5;
+          } else if (newVal.toLowerCase().includes('finetune') && min_tokens.value < 10) {
+            min_tokens.value = 10;
+          }
+        });
+
+        function onTempBlur() {
+          if (temperature.value < 0.01) temperature.value = 0.01;
+          if (temperature.value > 0.99) temperature.value = 0.99;
+          temperature.value = Math.round(temperature.value * 100) / 100;
         }
-
-        function onMinTokensBlur(){
-          let val = parseInt(min_tokens.value) || 5;
-          if (val < 5) val = 5;
-          else if (val > 140) val = 140;
-          min_tokens.value = val;
+        function onMinTokensBlur() {
+          const isFinetune = selected_model.value.toLowerCase().includes('finetune');
+          const minBound = isFinetune ? 5 : 10;
+          const maxBound = 50;
+          
+          if (min_tokens.value < minBound) min_tokens.value = minBound;
+          if (min_tokens.value > maxBound) min_tokens.value = maxBound;
+          min_tokens.value = Math.round(min_tokens.value);
         }
 
         function append(role, text){
           messages.push({role, text});
-          // scroll
           setTimeout(()=>{
             const el = document.querySelector('.chat-container');
             if(el) el.scrollTop = el.scrollHeight;
@@ -99,24 +103,14 @@
           append('bot', '...');
 
           try{
-            // clamp/validate before sending
-            let tempVal = parseFloat(temperature.value);
-            if (!isFinite(tempVal)) tempVal = 0.5;
-            if (tempVal <= 0.0) tempVal = 0.01;
-            if (tempVal >= 1.0) tempVal = 0.99;
-
-            let minT = parseInt(min_tokens.value) || 5;
-            if (minT < 5) minT = 5;
-            if (minT > 140) minT = 140;
-
             const res = await fetch('/api/chat', {
               method: 'POST',
               headers: {'Content-Type':'application/json'},
               body: JSON.stringify({
                 model: selected_model.value,
                 prompt: text,
-                min_tokens: minT,
-                temperature: tempVal,
+                min_tokens: min_tokens.value,
+                temperature: temperature.value,
               })
             });
             const data = await res.json();
@@ -130,7 +124,6 @@
           }
         }
 
-        // fetch available models and handle enter-to-send
         onMounted(async ()=>{
           try{
             const r = await fetch('/api/models');
@@ -171,7 +164,7 @@
           });
         });
 
-        return { models, selected_model, prompt, messages, min_tokens, temperature, send, onTempBlur, onMinTokensBlur };      }
+      return { models, selected_model, prompt, messages, min_tokens, temperature, send, onTempBlur, onMinTokensBlur };      }
     };
 
     createApp(App).mount('#app');
