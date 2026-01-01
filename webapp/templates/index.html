@@ -25,10 +25,10 @@
                 </select>
               </label>
               <label class="switch-label">Temp
-                <input v-model.number="temperature" @blur="onTempBlur" type="number" step="0.01" min="0.01" max="0.99" style="width:50px" />
+                <input v-model.number="temperature" @blur="onTempBlur" type="number" min="0.01" max="0.99" style="width:50px" />
               </label>
               <label class="switch-label">Min Tokens
-                <input v-model.number="min_tokens" @blur="onMinTokensBlur" type="number" step="1" min="10" max="140" style="width:50px" />
+                <input v-model.number="min_tokens" @blur="onMinTokensBlur" type="number" min="10" max="140" style="width:50px" />
               </label>
             </div>
         </header>
