@@ -65,10 +65,10 @@
 
         // Watch for model changes and update min_tokens default
         watch(selected_model, (newVal) => {
-          if (newVal.toLowerCase().includes('pretrain')) {
-            min_tokens.value = 5;
-          } else if (newVal.toLowerCase().includes('finetune') && min_tokens.value < 10) {
+          if (newVal.toLowerCase().includes('pretrain') && min_tokens.value < 10) {
             min_tokens.value = 10;
+          } else if (newVal.toLowerCase().includes('finetune')) {
+            min_tokens.value = 5;
           }
         });
 
@@ -129,25 +129,9 @@
             const r = await fetch('/api/models');
             const j = await r.json();
             if(j.models && j.models.length){
-              // prefer specific run folders; fall back to presets
-              const findById = (id) => j.models.find(m => m.id === id);
-
-              const finetuneRun = findById('finetune_chinchilla_style_deep');
-              const pretrainRun = findById('pretrain_chinchilla_style_deep');
-
-              const chatPreset = findById('chat');
-              const wikiPreset = findById('wikipedia');
-
-              const finetuneOption = finetuneRun ?
-                { id: 'finetune', label: 'finetune (chat)', checkpoint: finetuneRun.checkpoint } :
-                { id: 'finetune', label: 'finetune (chat)', checkpoint: (chatPreset && chatPreset.checkpoint) || '' };
-
-              const pretrainOption = pretrainRun ?
-                { id: 'pretrain', label: 'pretrain (wikipedia)', checkpoint: pretrainRun.checkpoint } :
-                { id: 'pretrain', label: 'pretrain (wikipedia)', checkpoint: (wikiPreset && wikiPreset.checkpoint) || '' };
-
-              models.value = [finetuneOption, pretrainOption];
-              selected_model.value = models.value[0].checkpoint || '';
+              // populate dropdown from API models list
+                models.value = j.models;
+                if (models.value.length) selected_model.value = models.value[0].checkpoint || '';
             }
           }catch(e){
             console.warn('Could not fetch models', e);
