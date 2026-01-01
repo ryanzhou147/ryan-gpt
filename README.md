@@ -14,12 +14,21 @@ Data sizes used for training
 
 1) Run & use
 
-Install and start the web UI:
+Install libraries
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -U pip
 pip install fastapi uvicorn torch   # install correct torch build for your CUDA
+```
+Download models
+```bash
+mkdir -p models/pretrain models/finetune && \
+curl -L -o models/pretrain/ckpt_final.pt "https://huggingface.co/ryanzhou147/ryan-gpt/resolve/main/pretrain_wikipedia/ckpt_final.pt" && \
+curl -L -o models/finetune/ckpt_final.pt "https://huggingface.co/ryanzhou147/ryan-gpt/resolve/main/finetune_dailydialog/ckpt_final.pt" && \
+```
+Run webapp
+```
 python webapp/app.py --host 127.0.0.1 --port 8080
 ```
 
