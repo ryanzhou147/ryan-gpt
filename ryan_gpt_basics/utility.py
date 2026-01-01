@@ -189,14 +189,15 @@ def decode(
         if eos_token_id is not None and (next_token == eos_token_id).all():
             break
         
-        # Repetition detection: check for repeated n-grams
-        if len(new_tokens) >= 12:
-            for n in [3, 4, 5, 6]:
+        # Repetition detection: stop if same n-gram repeats 3 times
+        if len(new_tokens) >= 9:
+            for n in [3, 4, 5, 6, 7, 8]:
                 if len(new_tokens) >= n * 3:
                     last = tuple(new_tokens[-n:])
                     prev = tuple(new_tokens[-2*n:-n])
                     prev_prev = tuple(new_tokens[-3*n:-2*n])
                     if last == prev == prev_prev:
+                        # Remove the repeated part
                         generated = generated[:, :-(2*n)]
                         return generated.squeeze(0) if prompt_ids.size(0) == 1 else generated
     
