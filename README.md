@@ -9,9 +9,7 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install fastapi uvicorn torch
 
 # Download checkpoints
-mkdir -p models/pretrain models/finetune
-curl -L -o models/pretrain/ckpt_final.pt "https://huggingface.co/ryanzhou147/ryan-gpt/resolve/main/pretrain_wikipedia/ckpt_final.pt"
-curl -L -o models/finetune/ckpt_final.pt "https://huggingface.co/ryanzhou147/ryan-gpt/resolve/main/finetune_dailydialog/ckpt_final.pt"
+chmod +x download_models.sh && ./download_models.sh
 
 # Run
 python webapp/app.py --host 127.0.0.1 --port 8080
